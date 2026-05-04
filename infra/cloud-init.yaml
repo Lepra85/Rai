@@ -1,0 +1,336 @@
+#cloud-config
+# Cloud-init for Rai (PAI on DigitalOcean — full bootstrap).
+# Bootstraps the droplet end-to-end so it only needs a `claude login` and an .env edit.
+
+hostname: rai
+manage_etc_hosts: true
+timezone: UTC
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - curl
+  - git
+  - jq
+  - unzip
+  - ca-certificates
+  - build-essential
+  - python3
+  - python3-venv
+  - python3-pip
+  - ffmpeg
+  - tmux
+  - htop
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+
+users:
+  - name: rai
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPcerClesU5BSehO6wo7rXhcBh4/Z+pNPOnoC4Y7IJmc claude@rai-pai
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-rai.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin prohibit-password
+      KbdInteractiveAuthentication no
+
+  - path: /etc/sysctl.d/99-rai.conf
+    permissions: "0644"
+    content: |
+      vm.swappiness=10
+      net.ipv4.tcp_keepalive_time=300
+
+  - path: /opt/rai/bot/requirements.txt
+    permissions: "0644"
+    content: |
+      python-telegram-bot==21.6
+      python-dotenv==1.0.1
+
+  - path: /opt/rai/bot/.env.example
+    permissions: "0644"
+    content: |
+      # Copy to .env and fill in.
+      TELEGRAM_BOT_TOKEN=
+      RAI_ALLOWED_CHAT_IDS=
+      # Optional:
+      # CLAUDE_BIN=claude
+      # RAI_WORK_DIR=/home/rai
+      # RAI_SESSIONS_FILE=/home/rai/.rai/sessions.json
+      # RAI_TIMEOUT_S=180
+
+  - path: /opt/rai/bot/main.py
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env python3
+      """Rai Telegram bot — bridges Telegram chats to Claude Code (with PAI)."""
+      import asyncio
+      import json
+      import logging
+      import os
+      import shlex
+      from pathlib import Path
+
+      from dotenv import load_dotenv
+      from telegram import Update
+      from telegram.constants import ChatAction
+      from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
+      load_dotenv()
+
+      TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+      ALLOWED_CHAT_IDS = {
+          int(x) for x in os.environ.get("RAI_ALLOWED_CHAT_IDS", "").split(",") if x.strip()
+      }
+      CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+      WORK_DIR = Path(os.environ.get("RAI_WORK_DIR", str(Path.home())))
+      SESSIONS_FILE = Path(
+          os.environ.get("RAI_SESSIONS_FILE", str(Path.home() / ".rai" / "sessions.json"))
+      )
+      SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+      TIMEOUT_S = int(os.environ.get("RAI_TIMEOUT_S", "180"))
+
+      logging.basicConfig(
+          level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+      )
+      log = logging.getLogger("rai")
+
+      _sessions_lock = asyncio.Lock()
+
+
+      def load_sessions() -> dict:
+          if SESSIONS_FILE.exists():
+              try:
+                  return json.loads(SESSIONS_FILE.read_text())
+              except json.JSONDecodeError:
+                  return {}
+          return {}
+
+
+      def save_sessions(data: dict) -> None:
+          tmp = SESSIONS_FILE.with_suffix(".tmp")
+          tmp.write_text(json.dumps(data, indent=2))
+          tmp.replace(SESSIONS_FILE)
+
+
+      async def call_claude(prompt: str, session_id: str | None) -> tuple[str, str]:
+          cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json"]
+          if session_id:
+              cmd.extend(["--resume", session_id])
+          log.info("claude cmd: %s ...", shlex.join(cmd[:4]))
+          proc = await asyncio.create_subprocess_exec(
+              *cmd,
+              stdout=asyncio.subprocess.PIPE,
+              stderr=asyncio.subprocess.PIPE,
+              cwd=str(WORK_DIR),
+          )
+          try:
+              stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT_S)
+          except asyncio.TimeoutError:
+              proc.kill()
+              await proc.wait()
+              raise RuntimeError(f"claude timed out after {TIMEOUT_S}s")
+          if proc.returncode != 0:
+              log.error("claude rc=%s stderr=%s", proc.returncode, stderr.decode()[:500])
+              raise RuntimeError(f"claude failed: {stderr.decode()[:300]}")
+          try:
+              payload = json.loads(stdout.decode())
+          except json.JSONDecodeError:
+              return stdout.decode().strip(), session_id or ""
+          return payload.get("result", "") or "", payload.get("session_id", session_id or "")
+
+
+      async def authorized(update: Update) -> bool:
+          chat_id = update.effective_chat.id
+          if not ALLOWED_CHAT_IDS:
+              log.warning("RAI_ALLOWED_CHAT_IDS empty - bot is open to anyone")
+              return True
+          if chat_id in ALLOWED_CHAT_IDS:
+              return True
+          log.warning("rejected chat_id=%s", chat_id)
+          if update.message:
+              await update.message.reply_text("No autorizado.")
+          return False
+
+
+      async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+          if not await authorized(update):
+              return
+          await update.message.reply_text(
+              "Hola, soy Rai.\nMandame un mensaje y te respondo usando Claude Code.\n"
+              "/reset reinicia tu conversacion.\n/id muestra tu chat id."
+          )
+
+
+      async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+          if not await authorized(update):
+              return
+          chat_id = str(update.effective_chat.id)
+          async with _sessions_lock:
+              sessions = load_sessions()
+              sessions.pop(chat_id, None)
+              save_sessions(sessions)
+          await update.message.reply_text("Conversacion reiniciada.")
+
+
+      async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+          await update.message.reply_text(f"chat_id: {update.effective_chat.id}")
+
+
+      async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+          if not await authorized(update):
+              return
+          text = (update.message.text or "").strip()
+          if not text:
+              return
+          chat_id = str(update.effective_chat.id)
+          await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+          async with _sessions_lock:
+              sessions = load_sessions()
+              session_id = sessions.get(chat_id)
+          try:
+              response, new_session_id = await call_claude(text, session_id)
+          except Exception as exc:
+              log.exception("claude call failed")
+              await update.message.reply_text(f"Error: {exc}")
+              return
+          if new_session_id and new_session_id != session_id:
+              async with _sessions_lock:
+                  sessions = load_sessions()
+                  sessions[chat_id] = new_session_id
+                  save_sessions(sessions)
+          if not response:
+              response = "(sin respuesta)"
+          for i in range(0, len(response), 4000):
+              chunk = response[i : i + 4000]
+              try:
+                  await update.message.reply_text(chunk, parse_mode="Markdown")
+              except Exception:
+                  await update.message.reply_text(chunk)
+
+
+      def main() -> None:
+          app = Application.builder().token(TOKEN).build()
+          app.add_handler(CommandHandler("start", cmd_start))
+          app.add_handler(CommandHandler("reset", cmd_reset))
+          app.add_handler(CommandHandler("id", cmd_id))
+          app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+          log.info("Rai bot starting...")
+          app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+      if __name__ == "__main__":
+          main()
+
+  - path: /etc/systemd/system/rai-bot.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Rai Telegram Bot (Claude Code bridge)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=rai
+      Group=rai
+      WorkingDirectory=/opt/rai/bot
+      EnvironmentFile=/opt/rai/bot/.env
+      Environment=HOME=/home/rai
+      Environment=PATH=/home/rai/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      ExecStart=/opt/rai/bot/.venv/bin/python /opt/rai/bot/main.py
+      Restart=on-failure
+      RestartSec=5
+      StandardOutput=append:/var/log/rai-bot.log
+      StandardError=append:/var/log/rai-bot.log
+
+      NoNewPrivileges=true
+      ProtectSystem=full
+      ProtectHome=read-only
+      ReadWritePaths=/home/rai /var/log /opt/rai
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /opt/rai/setup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euxo pipefail
+      exec > >(tee -a /var/log/rai-setup.log) 2>&1
+      echo "=== Rai setup START $(date -u) ==="
+
+      # Node.js 20 LTS
+      if ! command -v node >/dev/null 2>&1; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+      fi
+      node -v
+      npm -v
+
+      # Claude Code (global)
+      npm install -g @anthropic-ai/claude-code
+      which claude
+      claude --version || true
+
+      # Bun for the rai user
+      sudo -u rai bash -lc 'curl -fsSL https://bun.sh/install | bash' || true
+
+      # Bot Python venv
+      cd /opt/rai/bot
+      python3 -m venv .venv
+      .venv/bin/pip install --upgrade pip
+      .venv/bin/pip install -r requirements.txt
+
+      # Permissions and dirs
+      mkdir -p /home/rai/.rai /home/rai/.claude
+      chown -R rai:rai /opt/rai /home/rai/.rai /home/rai/.claude
+
+      # Bot log file
+      touch /var/log/rai-bot.log
+      chown rai:rai /var/log/rai-bot.log
+
+      # Enable but do not start (no .env yet)
+      systemctl daemon-reload
+      systemctl enable rai-bot.service
+
+      touch /var/log/rai-setup-done
+      echo "=== Rai setup DONE $(date -u) ==="
+
+  - path: /etc/motd
+    permissions: "0644"
+    content: |
+      ----------------------------------------------------------------
+      Rai droplet (PAI + Telegram bot)
+      Setup log:   /var/log/rai-setup.log
+      Bot log:     /var/log/rai-bot.log
+      Bot dir:     /opt/rai/bot
+      Service:     systemctl status rai-bot
+      ----------------------------------------------------------------
+      Final steps (as user 'rai'):
+        1) claude login
+        2) cp /opt/rai/bot/.env.example /opt/rai/bot/.env
+           nano /opt/rai/bot/.env   # set TELEGRAM_BOT_TOKEN + RAI_ALLOWED_CHAT_IDS
+        3) sudo systemctl start rai-bot
+        4) journalctl -u rai-bot -f
+      ----------------------------------------------------------------
+
+runcmd:
+  - [ ufw, default, deny, incoming ]
+  - [ ufw, default, allow, outgoing ]
+  - [ ufw, allow, "22/tcp" ]
+  - [ ufw, --force, enable ]
+  - [ systemctl, restart, ssh ]
+  - [ systemctl, enable, --now, fail2ban ]
+  - [ sysctl, --system ]
+  - [ bash, /opt/rai/setup.sh ]
+  - [ touch, /var/log/cloud-init-rai-done ]
+
+final_message: "Rai droplet ready. cloud-init took $UPTIME seconds. See /etc/motd for next steps."

@@ -1,0 +1,7 @@
+.secrets/
+infra/droplet.json
+*.log
+__pycache__/
+.venv/
+node_modules/
+.env

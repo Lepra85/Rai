@@ -1,0 +1,27 @@
+[Unit]
+Description=Rai Telegram Bot (Claude Code bridge)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rai
+Group=rai
+WorkingDirectory=/opt/rai/bot
+EnvironmentFile=/opt/rai/bot/.env
+Environment="HOME=/home/rai"
+Environment="PATH=/home/rai/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/rai/bot/.venv/bin/python /opt/rai/bot/main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/rai-bot.log
+StandardError=append:/var/log/rai-bot.log
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/rai /var/log /opt/rai
+
+[Install]
+WantedBy=multi-user.target
