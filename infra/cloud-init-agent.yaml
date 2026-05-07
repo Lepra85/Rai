@@ -1,0 +1,101 @@
+#cloud-config
+# Cloud-init for the Rai agent droplet (Phase 0).
+# The placeholder __OPENAI_API_KEY__ is substituted at droplet-creation time
+# (see scripts in this branch's commit message). Never commit a real key here.
+
+hostname: rai-agent
+manage_etc_hosts: true
+timezone: UTC
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - git
+  - python3
+  - python3-venv
+  - python3-pip
+  - tmux
+  - htop
+  - ufw
+  - fail2ban
+  - ca-certificates
+
+users:
+  - name: rai
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPcerClesU5BSehO6wo7rXhcBh4/Z+pNPOnoC4Y7IJmc claude@rai-pai
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-rai.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin prohibit-password
+
+  - path: /home/rai/.openai-key
+    permissions: "0600"
+    owner: rai:rai
+    content: |
+      __OPENAI_API_KEY__
+
+  - path: /opt/rai-setup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euxo pipefail
+      exec > >(tee -a /var/log/rai-setup.log) 2>&1
+      echo "=== Rai agent setup START $(date -u) ==="
+
+      cd /home/rai
+      if [ ! -d /home/rai/repo ]; then
+        sudo -u rai git clone https://github.com/Lepra85/Rai.git /home/rai/repo
+      fi
+      cd /home/rai/repo
+      sudo -u rai git fetch --all
+      sudo -u rai git checkout agent
+      sudo -u rai git pull --ff-only origin agent
+
+      cd /home/rai/repo/agent
+      sudo -u rai python3 -m venv .venv
+      sudo -u rai .venv/bin/pip install --upgrade pip
+      sudo -u rai .venv/bin/pip install -r requirements.txt
+
+      # Inject the key into .env
+      KEY=$(cat /home/rai/.openai-key)
+      cat > /home/rai/repo/agent/.env <<ENV
+      OPENAI_API_KEY=$KEY
+      ENV
+      chown rai:rai /home/rai/repo/agent/.env
+      chmod 600 /home/rai/repo/agent/.env
+      shred -u /home/rai/.openai-key
+
+      # Convenience symlink so the user can `cd ~/agente`
+      sudo -u rai ln -sf /home/rai/repo/agent /home/rai/agente
+
+      touch /var/log/rai-agent-setup-done
+      echo "=== Rai agent setup DONE $(date -u) ==="
+
+  - path: /etc/motd
+    permissions: "0644"
+    content: |
+      ----------------------------------------------------------------
+      Rai agent (Phase 0)
+      Run:  su - rai && cd ~/agente && ./run.sh
+      Logs: /var/log/rai-setup.log
+      Repo: /home/rai/repo  (branch 'agent')
+      ----------------------------------------------------------------
+
+runcmd:
+  - [ ufw, default, deny, incoming ]
+  - [ ufw, default, allow, outgoing ]
+  - [ ufw, allow, "22/tcp" ]
+  - [ ufw, --force, enable ]
+  - [ systemctl, restart, ssh ]
+  - [ systemctl, enable, --now, fail2ban ]
+  - [ bash, /opt/rai-setup.sh ]
+
+final_message: "Rai agent ready. cloud-init took $UPTIME seconds. See /etc/motd."
