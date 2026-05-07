@@ -1,5 +1,5 @@
 [Unit]
-Description=Rai Telegram Bot (Claude Code bridge)
+Description=Rai Telegram Bot (OpenAI Agents SDK)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,21 +7,18 @@ Wants=network-online.target
 Type=simple
 User=rai
 Group=rai
-WorkingDirectory=/opt/rai/bot
-EnvironmentFile=/opt/rai/bot/.env
-Environment="HOME=/home/rai"
-Environment="PATH=/home/rai/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/opt/rai/bot/.venv/bin/python /opt/rai/bot/main.py
+WorkingDirectory=/home/rai/repo/agent
+EnvironmentFile=/home/rai/repo/agent/.env
+ExecStart=/home/rai/repo/agent/.venv/bin/python /home/rai/repo/agent/bot.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/rai-bot.log
 StandardError=append:/var/log/rai-bot.log
 
-# Hardening
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/rai /var/log /opt/rai
+ReadWritePaths=/home/rai /var/log
 
 [Install]
 WantedBy=multi-user.target
