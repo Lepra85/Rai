@@ -36,9 +36,11 @@ write_files:
       PasswordAuthentication no
       PermitRootLogin prohibit-password
 
-  - path: /home/rai/.openai-key
+  # Written as root because the `rai` user does not exist yet at the
+  # write_files stage. The setup script (running as root) reads it later
+  # and writes the .env owned by `rai` with mode 0600, then shreds it.
+  - path: /opt/.openai-key
     permissions: "0600"
-    owner: rai:rai
     content: |
       __OPENAI_API_KEY__
 
@@ -46,9 +48,12 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      set -euxo pipefail
+      set -euo pipefail
       exec > >(tee -a /var/log/rai-setup.log) 2>&1
       echo "=== Rai agent setup START $(date -u) ==="
+
+      # Sanity: rai user must exist
+      id rai >/dev/null
 
       cd /home/rai
       if [ ! -d /home/rai/repo ]; then
@@ -64,14 +69,15 @@ write_files:
       sudo -u rai .venv/bin/pip install --upgrade pip
       sudo -u rai .venv/bin/pip install -r requirements.txt
 
-      # Inject the key into .env
-      KEY=$(cat /home/rai/.openai-key)
-      cat > /home/rai/repo/agent/.env <<ENV
-      OPENAI_API_KEY=$KEY
-      ENV
+      # Inject the key into .env (silently, no -x echoing)
+      umask 077
+      KEY=$(cat /opt/.openai-key)
+      printf 'OPENAI_API_KEY=%s\n' "$KEY" > /home/rai/repo/agent/.env
       chown rai:rai /home/rai/repo/agent/.env
       chmod 600 /home/rai/repo/agent/.env
-      shred -u /home/rai/.openai-key
+      shred -u /opt/.openai-key
+      unset KEY
+      umask 022
 
       # Convenience symlink so the user can `cd ~/agente`
       sudo -u rai ln -sf /home/rai/repo/agent /home/rai/agente
