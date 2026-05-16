@@ -67,7 +67,7 @@ Logs: `sudo journalctl -u rai-bot -f`
 cd agent
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-# crear .env con OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_CHAT_IDS
+cp .env.example .env   # editar con tus valores
 ./run-bot.sh           # bot completo
 ./run.sh               # REPL sin Telegram
 ```
