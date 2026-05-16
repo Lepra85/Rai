@@ -10,6 +10,8 @@ import asyncio
 import logging
 import os
 from collections import defaultdict
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from agents import Agent, Runner
 from dotenv import load_dotenv
@@ -39,14 +41,25 @@ logging.basicConfig(
 )
 log = logging.getLogger("rai-bot")
 
-agent = Agent(
-    name="Rai",
-    instructions=(
+MESES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def build_instructions(_ctx, _agent) -> str:
+    now = datetime.now(TZ)
+    hoy = f"{DIAS[now.weekday()]} {now.day} de {MESES[now.month - 1]} de {now.year}"
+    return (
+        f"Hoy es {hoy} (zona horaria America/Argentina/Buenos_Aires). "
         "Sos Rai, un asistente conciso que responde en castellano rioplatense. "
         "Si no sabés algo, decilo en lugar de inventar. No uses emojis."
-    ),
-    model=MODEL,
-)
+    )
+
+
+agent = Agent(name="Rai", instructions=build_instructions, model=MODEL)
 
 # In-memory history per chat_id (Agents SDK input-list format).
 histories: dict[int, list] = defaultdict(list)
