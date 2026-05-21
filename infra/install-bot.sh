@@ -26,10 +26,10 @@ if [[ ! -d $REPO_DIR ]]; then
   exit 1
 fi
 
-echo "[1/5] Pulling latest code from origin/agent"
-sudo -u rai git -C "$REPO_DIR" fetch --quiet origin agent
-sudo -u rai git -C "$REPO_DIR" checkout --quiet agent
-sudo -u rai git -C "$REPO_DIR" pull --quiet --ff-only origin agent
+echo "[1/5] Pulling latest code from origin/main"
+sudo -u rai git -C "$REPO_DIR" fetch --quiet origin main
+sudo -u rai git -C "$REPO_DIR" checkout --quiet main
+sudo -u rai git -C "$REPO_DIR" pull --quiet --ff-only origin main
 
 echo "[2/5] Installing/updating Python deps"
 sudo -u rai bash -lc "cd $AGENT_DIR && [ -d .venv ] || python3 -m venv .venv"

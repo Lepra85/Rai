@@ -54,7 +54,7 @@ sudo bash /home/rai/repo/infra/install-bot.sh
 ```
 
 El script:
-1. Pulls `origin/agent`
+1. Pulls `origin/main`
 2. Instala deps del bot en venv
 3. Pide `TELEGRAM_BOT_TOKEN` y `TELEGRAM_ALLOWED_CHAT_IDS` (si no están)
 4. Instala y arranca `rai-bot.service`
