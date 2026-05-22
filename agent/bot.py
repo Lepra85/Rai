@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 
 from agents import Agent, Runner
 from dotenv import load_dotenv
+
+from tools import get_weather
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -55,11 +57,14 @@ def build_instructions(_ctx, _agent) -> str:
     return (
         f"Hoy es {hoy} (zona horaria America/Argentina/Buenos_Aires). "
         "Sos Rai, un asistente conciso que responde en castellano rioplatense. "
-        "Si no sabés algo, decilo en lugar de inventar. No uses emojis."
+        "Si no sabés algo, decilo en lugar de inventar. No uses emojis. "
+        "Tenés acceso a la tool `get_weather` para consultar el clima actual de "
+        "10 ciudades: Buenos Aires, Córdoba, Rosario, Mendoza, São Paulo, "
+        "Santiago de Chile, Madrid, Nueva York, Londres y Tokio."
     )
 
 
-agent = Agent(name="Rai", instructions=build_instructions, model=MODEL)
+agent = Agent(name="Rai", instructions=build_instructions, model=MODEL, tools=[get_weather])
 
 # In-memory history per chat_id (Agents SDK input-list format).
 histories: dict[int, list] = defaultdict(list)

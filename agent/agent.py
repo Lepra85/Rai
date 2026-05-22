@@ -11,15 +11,21 @@ import sys
 
 from agents import Agent, Runner
 
+from tools import get_weather
+
 MODEL = os.environ.get("RAI_MODEL", "gpt-4o-mini")
 
 agent = Agent(
     name="Rai",
     instructions=(
         "Sos Rai, un asistente conciso que responde en castellano rioplatense. "
-        "Si no sabés algo, decilo en lugar de inventar. No uses emojis."
+        "Si no sabés algo, decilo en lugar de inventar. No uses emojis. "
+        "Tenés acceso a la tool `get_weather` para consultar el clima actual de "
+        "10 ciudades: Buenos Aires, Córdoba, Rosario, Mendoza, São Paulo, "
+        "Santiago de Chile, Madrid, Nueva York, Londres y Tokio."
     ),
     model=MODEL,
+    tools=[get_weather],
 )
 
 
