@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 from collections import defaultdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -50,17 +51,36 @@ MESES = [
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
+EQUIPOS = ["Boca Juniors", "River Plate", "Racing", "Independiente", "San Lorenzo"]
+
+# Comandos deterministas: se resuelven sin LLM. La descripción se usa para
+# el menú de Telegram y para que el agente pueda sugerirlos ("¿quisiste decir…?").
+COMMANDS = {
+    "equipos": "lista 5 equipos de fútbol",
+    "dia": "muestra qué día es hoy",
+    "moneda": "tira una moneda (cara o ceca)",
+}
+
+
+def fecha_hoy() -> str:
+    now = datetime.now(TZ)
+    return f"{DIAS[now.weekday()]} {now.day} de {MESES[now.month - 1]} de {now.year}"
+
 
 def build_instructions(_ctx, _agent) -> str:
-    now = datetime.now(TZ)
-    hoy = f"{DIAS[now.weekday()]} {now.day} de {MESES[now.month - 1]} de {now.year}"
+    comandos = "\n".join(f"/{name} — {desc}" for name, desc in COMMANDS.items())
     return (
-        f"Hoy es {hoy} (zona horaria America/Argentina/Buenos_Aires). "
+        f"Hoy es {fecha_hoy()} (zona horaria America/Argentina/Buenos_Aires). "
         "Sos Rai, un asistente conciso que responde en castellano rioplatense. "
         "Si no sabés algo, decilo en lugar de inventar. No uses emojis. "
         "Tenés acceso a la tool `get_weather` para consultar el clima actual de "
         "10 ciudades: Buenos Aires, Córdoba, Rosario, Mendoza, São Paulo, "
-        "Santiago de Chile, Madrid, Nueva York, Londres y Tokio."
+        "Santiago de Chile, Madrid, Nueva York, Londres y Tokio.\n\n"
+        "El bot tiene estos comandos:\n"
+        f"{comandos}\n"
+        "Si el mensaje del usuario se parece a lo que hace uno de esos comandos "
+        "(aunque no use la barra), sugerí el comando exacto. "
+        "Ej: ante '¿qué día es hoy?' respondé sugiriendo usar /dia."
     )
 
 
@@ -104,6 +124,27 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"chat_id: {update.effective_chat.id}")
 
 
+# --- Comandos deterministas: responden desde código, sin tocar el LLM. ---
+
+
+async def cmd_equipos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await authorized(update):
+        return
+    await update.message.reply_text("\n".join(EQUIPOS))
+
+
+async def cmd_dia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await authorized(update):
+        return
+    await update.message.reply_text(f"Hoy es {fecha_hoy()}.")
+
+
+async def cmd_moneda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await authorized(update):
+        return
+    await update.message.reply_text(random.choice(["Cara", "Ceca"]))
+
+
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await authorized(update):
         return
@@ -135,6 +176,9 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("id", cmd_id))
+    app.add_handler(CommandHandler("equipos", cmd_equipos))
+    app.add_handler(CommandHandler("dia", cmd_dia))
+    app.add_handler(CommandHandler("moneda", cmd_moneda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     log.info("Rai bot starting (model=%s)…", MODEL)
     app.run_polling(allowed_updates=Update.ALL_TYPES)

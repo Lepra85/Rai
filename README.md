@@ -45,6 +45,18 @@ infra/
 - `/reset` — borra la memoria del chat
 - cualquier otro texto — pasa al agente con la historia del chat
 
+### Comandos deterministas (sin LLM)
+
+Se resuelven directamente en código, sin llamar al modelo:
+
+- `/equipos` — lista 5 equipos de fútbol
+- `/dia` — muestra qué día es hoy
+- `/moneda` — tira una moneda (cara o ceca)
+
+El agente conoce esta lista de comandos: ante texto libre parecido a lo que
+hace alguno (aunque no use la barra), sugiere el comando exacto — ej. ante
+"¿qué día es hoy?" responde sugiriendo `/dia`.
+
 ## Deploy
 
 El droplet se crea con `infra/cloud-init-agent.yaml` (sustituye `__OPENAI_API_KEY__` en la creación). Una vez booteado:
