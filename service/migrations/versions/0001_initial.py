@@ -17,11 +17,15 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    rol_enum = sa.Enum(
+    # create_type=False prevents SQLAlchemy from emitting a second CREATE TYPE
+    # when the column referencing this enum is added to `usuarios`. We create
+    # the type explicitly once below.
+    rol_enum = postgresql.ENUM(
         "dueño",
         "encargado",
         "empleado",
         name="rol",
+        create_type=False,
     )
     rol_enum.create(op.get_bind(), checkfirst=True)
 
@@ -133,4 +137,4 @@ def downgrade() -> None:
     op.drop_index("ix_empresas_phone_number_id", table_name="empresas")
     op.drop_table("empresas")
 
-    sa.Enum(name="rol").drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(name="rol").drop(op.get_bind(), checkfirst=True)
