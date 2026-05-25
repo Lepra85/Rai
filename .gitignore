@@ -3,6 +3,7 @@ infra/droplet.json
 *.log
 __pycache__/
 .venv/
+*.egg-info/
 node_modules/
 .env
 Personal_AI_Infrastructure/
