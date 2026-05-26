@@ -15,11 +15,23 @@ class Settings(BaseSettings):
     # (catalog tests, Alembic env in offline mode, etc.).
     database_url: str = ""
 
-    # Shared secret used to authenticate webhook calls from the Kapso flow.
+    # Shared secret used to authenticate flow → /resolve, /op webhook calls.
     flow_api_secret: str = ""
 
-    # Kapso platform API key, used by the flow-deploy tooling.
+    # Kapso platform API key — used to send outbound WhatsApp messages via
+    # https://api.kapso.ai/meta/whatsapp/...
     kapso_api_key: str = ""
+
+    # Kapso webhook signing secret — Kapso signs every inbound webhook with
+    # HMAC-SHA256(this_secret, raw_body) and sends the hex digest in
+    # X-Webhook-Signature. Empty → /webhook/whatsapp rejects everything.
+    kapso_webhook_secret: str = ""
+
+    # Default WhatsApp Business phone_number_id used for outbound sends when
+    # the caller doesn't override. Multi-tenant code typically passes one
+    # explicitly per empresa. This is an optional default for single-tenant
+    # local testing.
+    whatsapp_default_phone_number_id: str = ""
 
 
 def get_settings() -> Settings:

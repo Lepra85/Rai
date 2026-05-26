@@ -1,0 +1,155 @@
+"""Tests for POST /webhook/whatsapp (Kapso inbound)."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+
+from rai.api.webhook import (
+    KAPSO_SIGNATURE_HEADER,
+    require_kapso_signed_request,
+    verify_kapso_signature,
+)
+from rai.config import Settings, get_settings
+
+SECRET = "kapso-webhook-secret-test-only"
+
+
+def _sign(body: bytes, secret: str = SECRET) -> str:
+    return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+def _client(secret: str = SECRET) -> TestClient:
+    """Tiny app that exercises the auth dep in isolation."""
+    app = FastAPI()
+
+    def fake_settings() -> Settings:
+        return Settings(kapso_webhook_secret=secret)
+
+    @app.post("/echo")
+    async def echo(body: bytes = Depends(require_kapso_signed_request)) -> dict:
+        return {"len": len(body)}
+
+    app.dependency_overrides[get_settings] = fake_settings
+    return TestClient(app)
+
+
+# -- verify_kapso_signature unit tests --------------------------------------
+
+
+def test_verify_accepts_correct_signature() -> None:
+    body = b'{"hello":"world"}'
+    assert verify_kapso_signature(body, _sign(body), SECRET) is True
+
+
+def test_verify_is_case_insensitive_on_hex() -> None:
+    body = b'{"hello":"world"}'
+    sig_upper = _sign(body).upper()
+    assert verify_kapso_signature(body, sig_upper, SECRET) is True
+
+
+def test_verify_rejects_tampered_body() -> None:
+    sig = _sign(b'{"a":1}')
+    assert verify_kapso_signature(b'{"a":2}', sig, SECRET) is False
+
+
+def test_verify_rejects_wrong_secret() -> None:
+    body = b'{"a":1}'
+    assert verify_kapso_signature(body, _sign(body), "different-secret") is False
+
+
+def test_verify_rejects_empty_signature() -> None:
+    assert verify_kapso_signature(b"{}", "", SECRET) is False
+
+
+# -- dependency-level tests against a stand-in endpoint ---------------------
+
+
+def test_dep_accepts_signed_body() -> None:
+    client = _client()
+    body = b'{"ping":true}'
+    r = client.post("/echo", content=body, headers={KAPSO_SIGNATURE_HEADER: _sign(body)})
+    assert r.status_code == 200
+    assert r.json() == {"len": len(body)}
+
+
+def test_dep_rejects_missing_header() -> None:
+    client = _client()
+    r = client.post("/echo", content=b"{}")
+    assert r.status_code == 401
+
+
+def test_dep_rejects_invalid_header() -> None:
+    client = _client()
+    r = client.post("/echo", content=b"{}", headers={KAPSO_SIGNATURE_HEADER: "deadbeef"})
+    assert r.status_code == 401
+
+
+def test_dep_500_when_secret_not_configured() -> None:
+    client = _client(secret="")
+    r = client.post("/echo", content=b"{}", headers={KAPSO_SIGNATURE_HEADER: "anything"})
+    assert r.status_code == 500
+
+
+# -- /webhook/whatsapp through the real app ---------------------------------
+
+
+def test_webhook_accepts_meta_style_text_payload(client) -> None:
+    """End-to-end: a Meta-style inbound text message passes signature
+    check and returns a 200 with the count of summarized messages."""
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "WABA_ID",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "metadata": {
+                                "display_phone_number": "5491100000000",
+                                "phone_number_id": "PNID_123",
+                            },
+                            "messages": [
+                                {
+                                    "from": "5491199999999",
+                                    "id": "wamid.abc",
+                                    "type": "text",
+                                    "text": {"body": "hola"},
+                                    "timestamp": "1700000000",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    body = json.dumps(payload).encode("utf-8")
+    # Override the webhook secret on the shared client fixture for this test.
+    from rai.config import get_settings as real_gs
+
+    def gs() -> Settings:
+        return Settings(kapso_webhook_secret=SECRET, flow_api_secret="ignored")
+
+    client.app.dependency_overrides[real_gs] = gs
+    try:
+        r = client.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        client.app.dependency_overrides.pop(real_gs, None)
+
+    assert r.status_code == 200
+    assert r.json() == {"received": 1}
+
+
+def test_webhook_rejects_unsigned(client) -> None:
+    r = client.post("/webhook/whatsapp", json={"object": "whatsapp_business_account"})
+    # Either 401 (missing signature) or 500 (no secret) — both are "rejected".
+    assert r.status_code in (401, 500)

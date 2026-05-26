@@ -7,11 +7,13 @@ from fastapi.responses import JSONResponse
 from rai import __version__
 from rai.api import op as op_api
 from rai.api import resolve as resolve_api
+from rai.api import webhook as webhook_api
 from rai.errors import RaiError
 
 app = FastAPI(title="Rai Domain Service", version=__version__)
 app.include_router(resolve_api.router)
 app.include_router(op_api.router)
+app.include_router(webhook_api.router)
 
 
 @app.exception_handler(RaiError)
