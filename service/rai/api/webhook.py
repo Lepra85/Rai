@@ -389,20 +389,6 @@ PEDIDOS_REPORT = (
     "Total transferido: *$ 2.471.210,01*"
 )
 
-DEMO_LIST_SECTIONS = [
-    {
-        "title": "Animales",
-        "rows": [
-            {"id": "animal_perro", "title": "Perro", "description": "Mamífero doméstico"},
-            {"id": "animal_gato", "title": "Gato", "description": "Felino doméstico"},
-            {"id": "animal_hamster", "title": "Hamster", "description": "Roedor pequeño"},
-            {"id": "animal_tortuga", "title": "Tortuga", "description": "Reptil con caparazón"},
-            {"id": "animal_cobaya", "title": "Cobaya", "description": "Roedor sudamericano"},
-        ],
-    }
-]
-
-
 def _dispatch_demo(
     client: WhatsAppClient, payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -448,19 +434,11 @@ def _dispatch_demo(
         client.send_buttons(
             phone_number_id=phone_number_id,
             to=to,
-            header="Rai · demo",
+            header="Rai",
             body="¿Qué necesitás?",
             buttons=DEMO_BUTTONS,
         )
-        client.send_list(
-            phone_number_id=phone_number_id,
-            to=to,
-            header="Bestiario",
-            body="Elegí un animal (es solo demo)",
-            button_text="Ver animales",
-            sections=DEMO_LIST_SECTIONS,
-        )
-        return {"sent": "buttons+list"}
+        return {"sent": "buttons"}
 
     if kind == "interactive":
         inter = msg.get("interactive") or {}

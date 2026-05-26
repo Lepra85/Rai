@@ -297,7 +297,9 @@ def _v2_interactive_button_tap(button_id: str = "btn_pedidos") -> bytes:
     ).encode()
 
 
-def test_demo_dispatch_text_sends_buttons_and_list() -> None:
+def test_demo_dispatch_text_sends_buttons_only() -> None:
+    """Inbound text → ONE message (3 reply buttons), no list. The bestiario
+    demo was removed to halve perceived latency."""
     c, fake = _client_with_fake_wa()
     try:
         body = _v2_inbound_text("hola")
@@ -312,19 +314,10 @@ def test_demo_dispatch_text_sends_buttons_and_list() -> None:
 
     assert r.status_code == 200
     methods = [m for m, _ in fake.calls]
-    assert methods == ["send_buttons", "send_list"]
+    assert methods == ["send_buttons"]
     btn_call = fake.calls[0][1]
     titles = [b["title"] for b in btn_call["buttons"]]
     assert titles == ["Pedidos", "Devolucion", "Comprobantes"]
-    list_call = fake.calls[1][1]
-    list_ids = [r["id"] for r in list_call["sections"][0]["rows"]]
-    assert list_ids == [
-        "animal_perro",
-        "animal_gato",
-        "animal_hamster",
-        "animal_tortuga",
-        "animal_cobaya",
-    ]
 
 
 def test_demo_dispatch_button_tap_echoes() -> None:
