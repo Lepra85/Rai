@@ -140,6 +140,98 @@ DEMO_BUTTONS = [
     {"id": "btn_comprobantes", "title": "Comprobantes"},
 ]
 
+# --- /devolucion demo data --------------------------------------------------
+# Stateless per-message: every interactive id carries the full context, so the
+# router doesn't have to remember "which pedido did the user pick two turns
+# ago". The real M+1 version reads from the DB; here we hardcode the same row
+# the user showed in their screenshot.
+
+DEV_DEMO_PEDIDOS = [
+    {
+        "id": "003249",
+        "cliente": "FARINA FERNANDA",
+        "factura": "00007-00390007",
+        "total": "$ 35.142,41",
+    },
+]
+
+DEV_DEMO_ITEMS_BY_PEDIDO = {
+    "003249": [
+        {
+            "id": "7115",
+            "nombre": "ANDES X12 1000RET",
+            "stock_devolvible": 1,
+            "monto_unidad": "$ 35.142,41",
+        },
+    ],
+}
+
+
+def _build_dev_pedidos_list() -> list[dict[str, object]]:
+    rows = []
+    for p in DEV_DEMO_PEDIDOS:
+        rows.append(
+            {
+                "id": f"dev:pedido:{p['id']}",
+                "title": f"{p['id']} {p['cliente']}"[:24],
+                "description": f"{p['total']} · FACTURA {p['factura']}"[:72],
+            }
+        )
+    rows.append(
+        {
+            "id": "dev:pedido:_search",
+            "title": "🔎 Buscar por ID",
+            "description": "Ingresar n° de pedido manualmente",
+        }
+    )
+    return [{"title": "Pedidos del día", "rows": rows}]
+
+
+def _build_dev_items_list(pedido_id: str) -> list[dict[str, object]]:
+    items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
+    rows = []
+    for it in items:
+        stock = it["stock_devolvible"]
+        unit = "bulto" if stock == 1 else "bultos"
+        rows.append(
+            {
+                "id": f"dev:item:{pedido_id}:{it['id']}",
+                "title": f"{it['id']} {it['nombre']}"[:24],
+                "description": f"{stock} {unit} disp · {it['monto_unidad']}"[:72],
+            }
+        )
+    return [{"title": "Items del pedido", "rows": rows}]
+
+
+def _build_dev_qty_buttons(pedido_id: str, item_id: str) -> list[dict[str, str]]:
+    items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
+    item = next((i for i in items if i["id"] == item_id), None)
+    stock = (item or {}).get("stock_devolvible", 0)
+    # Up to 2 quantity buttons + 1 cancel (Meta limit: 3 reply buttons).
+    qty_max = min(stock, 2)
+    buttons: list[dict[str, str]] = []
+    for n in range(1, qty_max + 1):
+        buttons.append({"id": f"dev:qty:{pedido_id}:{item_id}:{n}", "title": str(n)})
+    buttons.append({"id": "dev:cancel", "title": "Cancelar"})
+    return buttons
+
+
+def _build_dev_confirmation(pedido_id: str, item_id: str, qty: int) -> str:
+    items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
+    item = next((i for i in items if i["id"] == item_id), None)
+    pedido = next((p for p in DEV_DEMO_PEDIDOS if p["id"] == pedido_id), None)
+    if item is None or pedido is None:
+        return "⚠️ No se pudo registrar la devolución (item o pedido inválido)."
+    unit = "bulto" if qty == 1 else "bultos"
+    return (
+        "✅ *Devolución registrada*\n"
+        f"Pedido: *{pedido['id']} · {pedido['cliente']}*\n"
+        f"Item: {item['id']} {item['nombre']}\n"
+        f"Cantidad: *{qty} {unit}*\n"
+        f"Importe unitario: *{item['monto_unidad']}*"
+    )
+
+
 # Hardcoded /pedidos response — drops the "indica tu ID de chofer" turn;
 # in real life the chofer is derived from the WhatsApp number sending the
 # message. WhatsApp text formatting uses *bold* and emojis render inline.
@@ -233,6 +325,78 @@ def _dispatch_demo(
                 phone_number_id=phone_number_id, to=to, body=PEDIDOS_REPORT
             )
             return {"sent": "pedidos_report"}
+
+        # /devolucion flow — state is encoded in the row/button ids.
+        if tapped_id == "btn_devolucion":
+            client.send_list(
+                phone_number_id=phone_number_id,
+                to=to,
+                header="Devolución · paso 1/3",
+                body="¿De qué pedido?",
+                button_text="Ver pedidos",
+                sections=_build_dev_pedidos_list(),
+            )
+            return {"sent": "dev_pedidos_list"}
+
+        if tapped_id == "dev:cancel":
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body="Devolución cancelada. Volvé al menú con cualquier mensaje.",
+            )
+            return {"sent": "dev_cancelled"}
+
+        if tapped_id == "dev:pedido:_search":
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body="🔎 (demo) En producción, acá te abrimos input de texto para ingresar el ID de pedido.",
+            )
+            return {"sent": "dev_search_stub"}
+
+        if tapped_id.startswith("dev:pedido:"):
+            pedido_id = tapped_id.split(":", 2)[2]
+            client.send_list(
+                phone_number_id=phone_number_id,
+                to=to,
+                header=f"Devolución · paso 2/3",
+                body=f"Pedido *{pedido_id}*\n¿Qué item devolvés?",
+                button_text="Ver items",
+                sections=_build_dev_items_list(pedido_id),
+            )
+            return {"sent": "dev_items_list", "pedido": pedido_id}
+
+        if tapped_id.startswith("dev:item:"):
+            _, _, pedido_id, item_id = tapped_id.split(":", 3)
+            items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
+            item = next((i for i in items if i["id"] == item_id), None)
+            stock = (item or {}).get("stock_devolvible", 0)
+            unit = "bulto" if stock == 1 else "bultos"
+            client.send_buttons(
+                phone_number_id=phone_number_id,
+                to=to,
+                header="Devolución · paso 3/3",
+                body=(
+                    f"Item *{item_id} {(item or {}).get('nombre','?')}*\n"
+                    f"Stock devolvible: *{stock} {unit}*\n"
+                    f"¿Cuántos {unit} devuelve?"
+                ),
+                buttons=_build_dev_qty_buttons(pedido_id, item_id),
+            )
+            return {"sent": "dev_qty_buttons", "pedido": pedido_id, "item": item_id}
+
+        if tapped_id.startswith("dev:qty:"):
+            _, _, pedido_id, item_id, qty_s = tapped_id.split(":", 4)
+            try:
+                qty = int(qty_s)
+            except ValueError:
+                qty = 0
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body=_build_dev_confirmation(pedido_id, item_id, qty),
+            )
+            return {"sent": "dev_confirmed", "qty": qty}
 
         # Default: echo what was tapped.
         client.send_text(

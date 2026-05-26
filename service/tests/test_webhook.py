@@ -328,9 +328,10 @@ def test_demo_dispatch_text_sends_buttons_and_list() -> None:
 
 
 def test_demo_dispatch_button_tap_echoes() -> None:
+    """Unhandled buttons (no dispatcher branch) still echo back the id."""
     c, fake = _client_with_fake_wa()
     try:
-        body = _v2_interactive_button_tap("btn_devolucion")
+        body = _v2_interactive_button_tap("btn_comprobantes")
         r = c.post(
             "/webhook/whatsapp",
             content=body,
@@ -344,7 +345,7 @@ def test_demo_dispatch_button_tap_echoes() -> None:
     assert len(fake.calls) == 1
     method, kw = fake.calls[0]
     assert method == "send_text"
-    assert "btn_devolucion" in kw["body"]
+    assert "btn_comprobantes" in kw["body"]
 
 
 def test_demo_dispatch_pedidos_button_sends_report() -> None:
@@ -372,7 +373,46 @@ def test_demo_dispatch_pedidos_button_sends_report() -> None:
 
 
 def test_demo_dispatch_other_buttons_still_echo() -> None:
-    """Non-pedidos buttons keep the echo behavior."""
+    """Buttons with no dispatcher branch (btn_comprobantes) keep echoing."""
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("btn_comprobantes")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert len(fake.calls) == 1
+    kw = fake.calls[0][1]
+    assert "btn_comprobantes" in kw["body"]
+    # Specifically: did NOT send the pedidos report.
+    assert "INTERNO 6" not in kw["body"]
+
+
+def _v2_list_row_tap(row_id: str) -> bytes:
+    return json.dumps(
+        {
+            "message": {
+                "id": "wamid.row",
+                "type": "interactive",
+                "from": "541159200080",
+                "interactive": {
+                    "type": "list_reply",
+                    "list_reply": {"id": row_id, "title": "x"},
+                },
+                "kapso": {"direction": "inbound"},
+            },
+            "phone_number_id": "597907523413541",
+        }
+    ).encode()
+
+
+def test_devolucion_button_opens_pedidos_list() -> None:
     c, fake = _client_with_fake_wa()
     try:
         body = _v2_interactive_button_tap("btn_devolucion")
@@ -386,11 +426,99 @@ def test_demo_dispatch_other_buttons_still_echo() -> None:
         app.dependency_overrides.clear()
 
     assert r.status_code == 200
-    assert len(fake.calls) == 1
+    assert fake.calls[0][0] == "send_list"
     kw = fake.calls[0][1]
-    assert "btn_devolucion" in kw["body"]
-    # Specifically: did NOT send the pedidos report.
-    assert "INTERNO 6" not in kw["body"]
+    assert "paso 1/3" in kw["header"]
+    rows = kw["sections"][0]["rows"]
+    ids = [r["id"] for r in rows]
+    assert "dev:pedido:003249" in ids
+    assert "dev:pedido:_search" in ids  # escape hatch always present
+
+
+def test_devolucion_pedido_tap_opens_items_list() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_list_row_tap("dev:pedido:003249")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_list"
+    kw = fake.calls[0][1]
+    assert "paso 2/3" in kw["header"]
+    rows = kw["sections"][0]["rows"]
+    assert any(r["id"] == "dev:item:003249:7115" for r in rows)
+
+
+def test_devolucion_item_tap_opens_qty_buttons() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_list_row_tap("dev:item:003249:7115")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_buttons"
+    kw = fake.calls[0][1]
+    titles = [b["title"] for b in kw["buttons"]]
+    ids = [b["id"] for b in kw["buttons"]]
+    # Stock is 1 → buttons are [1] [Cancelar].
+    assert titles == ["1", "Cancelar"]
+    assert "dev:qty:003249:7115:1" in ids
+    assert "dev:cancel" in ids
+
+
+def test_devolucion_qty_button_sends_confirmation() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("dev:qty:003249:7115:1")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_text"
+    text = fake.calls[0][1]["body"]
+    assert "Devolución registrada" in text
+    assert "003249" in text
+    assert "FARINA" in text
+    assert "7115" in text
+    assert "1 bulto" in text
+
+
+def test_devolucion_cancel_sends_cancellation_text() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("dev:cancel")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_text"
+    assert "cancelada" in fake.calls[0][1]["body"].lower()
 
 
 def test_demo_dispatch_skips_outbound_messages() -> None:
