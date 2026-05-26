@@ -480,6 +480,81 @@ def test_devolucion_item_tap_opens_qty_buttons() -> None:
     assert "dev:cancel" in ids
 
 
+def test_devolucion_item_with_stock_3_uses_list_not_buttons() -> None:
+    """COCA COLA in pedido 003250 has stock_devolvible=3 → must render as a
+    list (Meta caps reply buttons at 3 and we need a Cancelar slot)."""
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_list_row_tap("dev:item:003250:8230")  # COCA COLA, stock=3
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_list"
+    kw = fake.calls[0][1]
+    row_ids = [r["id"] for r in kw["sections"][0]["rows"]]
+    # Three quantity rows + one cancel row.
+    assert "dev:qty:003250:8230:1" in row_ids
+    assert "dev:qty:003250:8230:2" in row_ids
+    assert "dev:qty:003250:8230:3" in row_ids
+    assert "dev:cancel" in row_ids
+    assert len(row_ids) == 4
+
+
+def test_devolucion_item_with_large_stock_caps_at_nine_rows() -> None:
+    """TWISTOS in pedido 003256 has stock_devolvible=12; we cap at 9 numeric
+    rows so the list still fits in WhatsApp's 10-row max with Cancelar."""
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_list_row_tap("dev:item:003256:9045")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    kw = fake.calls[0][1]
+    rows = kw["sections"][0]["rows"]
+    assert len(rows) == 10  # 9 numeric + 1 cancel
+    qty_titles = [r["title"] for r in rows if r["id"].startswith("dev:qty:")]
+    assert qty_titles[0] == "1 bulto"
+    assert qty_titles[-1] == "9 bultos"
+
+
+def test_devolucion_pedidos_list_includes_all_eight() -> None:
+    """The pedidos list shows the 8 hardcoded pedidos + the search escape hatch."""
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("btn_devolucion")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    kw = fake.calls[0][1]
+    row_ids = [r["id"] for r in kw["sections"][0]["rows"]]
+    # 8 pedidos + 1 search row = 9 total rows.
+    assert len(row_ids) == 9
+    for pid in ("003249", "003250", "003251", "003252", "003253", "003254", "003255", "003256"):
+        assert f"dev:pedido:{pid}" in row_ids
+    assert "dev:pedido:_search" in row_ids
+
+
 def test_devolucion_qty_button_sends_confirmation() -> None:
     c, fake = _client_with_fake_wa()
     try:

@@ -147,22 +147,62 @@ DEMO_BUTTONS = [
 # the user showed in their screenshot.
 
 DEV_DEMO_PEDIDOS = [
-    {
-        "id": "003249",
-        "cliente": "FARINA FERNANDA",
-        "factura": "00007-00390007",
-        "total": "$ 35.142,41",
-    },
+    {"id": "003249", "cliente": "FARINA FERNANDA",  "factura": "00007-00390007", "total": "$ 35.142,41"},
+    {"id": "003250", "cliente": "PEREZ JUAN",       "factura": "00007-00390008", "total": "$ 28.500,00"},
+    {"id": "003251", "cliente": "GOMEZ MARIA",      "factura": "00007-00390009", "total": "$ 92.350,00"},
+    {"id": "003252", "cliente": "LOPEZ CARLOS",     "factura": "00007-00390010", "total": "$ 14.200,00"},
+    {"id": "003253", "cliente": "RODRIGUEZ ANA",    "factura": "00007-00390011", "total": "$ 67.890,50"},
+    {"id": "003254", "cliente": "MARTINEZ LUIS",    "factura": "00007-00390012", "total": "$ 41.700,00"},
+    {"id": "003255", "cliente": "SANCHEZ LAURA",    "factura": "00007-00390013", "total": "$ 19.450,75"},
+    {"id": "003256", "cliente": "DIAZ ROBERTO",     "factura": "00007-00390014", "total": "$ 53.880,00"},
 ]
 
 DEV_DEMO_ITEMS_BY_PEDIDO = {
     "003249": [
-        {
-            "id": "7115",
-            "nombre": "ANDES X12 1000RET",
-            "stock_devolvible": 1,
-            "monto_unidad": "$ 35.142,41",
-        },
+        {"id": "7115", "nombre": "ANDES X12 1000RET",  "stock_devolvible": 1, "monto_unidad": "$ 35.142,41"},
+        {"id": "7120", "nombre": "BRAHMA X6 730ML",    "stock_devolvible": 2, "monto_unidad": "$ 18.500,00"},
+        {"id": "7125", "nombre": "QUILMES X12 1000RET","stock_devolvible": 1, "monto_unidad": "$ 32.800,00"},
+    ],
+    "003250": [
+        {"id": "8230", "nombre": "COCA COLA X6 2.25L", "stock_devolvible": 3, "monto_unidad": "$ 9.500,00"},
+        {"id": "8235", "nombre": "SPRITE X6 2.25L",    "stock_devolvible": 2, "monto_unidad": "$ 9.200,00"},
+        {"id": "8240", "nombre": "FANTA X6 1.5L",      "stock_devolvible": 1, "monto_unidad": "$ 7.600,00"},
+    ],
+    "003251": [
+        {"id": "7115", "nombre": "ANDES X12 1000RET",  "stock_devolvible": 5, "monto_unidad": "$ 35.142,41"},
+        {"id": "7120", "nombre": "BRAHMA X6 730ML",    "stock_devolvible": 3, "monto_unidad": "$ 18.500,00"},
+        {"id": "9001", "nombre": "AGUA VILLA X6 2L",   "stock_devolvible": 6, "monto_unidad": "$ 4.800,00"},
+        {"id": "9005", "nombre": "BAGGIO NARANJA X8",  "stock_devolvible": 4, "monto_unidad": "$ 12.300,00"},
+        {"id": "9010", "nombre": "LAYS PAPAS 250G",    "stock_devolvible": 2, "monto_unidad": "$ 6.500,00"},
+        {"id": "9015", "nombre": "PRINGLES X12 124G",  "stock_devolvible": 1, "monto_unidad": "$ 28.000,00"},
+    ],
+    "003252": [
+        {"id": "7125", "nombre": "QUILMES X12 1000RET","stock_devolvible": 1, "monto_unidad": "$ 32.800,00"},
+        {"id": "7130", "nombre": "STELLA ARTOIS X6",   "stock_devolvible": 2, "monto_unidad": "$ 22.400,00"},
+    ],
+    "003253": [
+        {"id": "8230", "nombre": "COCA COLA X6 2.25L", "stock_devolvible": 2, "monto_unidad": "$ 9.500,00"},
+        {"id": "8245", "nombre": "PEPSI X6 2.25L",     "stock_devolvible": 3, "monto_unidad": "$ 8.900,00"},
+        {"id": "9001", "nombre": "AGUA VILLA X6 2L",   "stock_devolvible": 4, "monto_unidad": "$ 4.800,00"},
+        {"id": "9020", "nombre": "GATORADE X6 500ML",  "stock_devolvible": 5, "monto_unidad": "$ 11.200,00"},
+        {"id": "9025", "nombre": "RED BULL X4 250ML",  "stock_devolvible": 1, "monto_unidad": "$ 9.800,00"},
+    ],
+    "003254": [
+        {"id": "7115", "nombre": "ANDES X12 1000RET",  "stock_devolvible": 8, "monto_unidad": "$ 35.142,41"},
+        {"id": "7140", "nombre": "CORONA X6 355ML",    "stock_devolvible": 3, "monto_unidad": "$ 21.300,00"},
+        {"id": "7145", "nombre": "HEINEKEN X6 330ML",  "stock_devolvible": 2, "monto_unidad": "$ 24.800,00"},
+        {"id": "8235", "nombre": "SPRITE X6 2.25L",    "stock_devolvible": 1, "monto_unidad": "$ 9.200,00"},
+    ],
+    "003255": [
+        {"id": "9030", "nombre": "TERMA HIERBA X6",    "stock_devolvible": 2, "monto_unidad": "$ 7.800,00"},
+        {"id": "9035", "nombre": "PASO DE LOS TOROS",  "stock_devolvible": 1, "monto_unidad": "$ 6.400,00"},
+        {"id": "9040", "nombre": "MANAOS COLA X6",     "stock_devolvible": 1, "monto_unidad": "$ 5.200,00"},
+    ],
+    "003256": [
+        {"id": "7115", "nombre": "ANDES X12 1000RET",  "stock_devolvible": 1,  "monto_unidad": "$ 35.142,41"},
+        {"id": "9045", "nombre": "TWISTOS PIZZA 62G",  "stock_devolvible": 12, "monto_unidad": "$ 3.450,00"},
+        {"id": "9050", "nombre": "DORITOS PIZZA 220G", "stock_devolvible": 4,  "monto_unidad": "$ 5.900,00"},
+        {"id": "9055", "nombre": "OREO X3 117G",       "stock_devolvible": 2,  "monto_unidad": "$ 4.200,00"},
     ],
 }
 
@@ -203,17 +243,48 @@ def _build_dev_items_list(pedido_id: str) -> list[dict[str, object]]:
     return [{"title": "Items del pedido", "rows": rows}]
 
 
-def _build_dev_qty_buttons(pedido_id: str, item_id: str) -> list[dict[str, str]]:
+def _build_dev_qty(pedido_id: str, item_id: str) -> tuple[str, dict]:
+    """Pick the right UI for selecting a quantity.
+
+    Returns a tuple (mode, kwargs) where mode is "buttons" (stock ≤ 2;
+    Meta caps at 3 reply buttons so we use [N] + [Cancelar]) or "list"
+    (stock ≥ 3; we list 1..min(stock,9) bultos + a Cancelar row).
+    """
     items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
     item = next((i for i in items if i["id"] == item_id), None)
     stock = (item or {}).get("stock_devolvible", 0)
-    # Up to 2 quantity buttons + 1 cancel (Meta limit: 3 reply buttons).
-    qty_max = min(stock, 2)
-    buttons: list[dict[str, str]] = []
-    for n in range(1, qty_max + 1):
-        buttons.append({"id": f"dev:qty:{pedido_id}:{item_id}:{n}", "title": str(n)})
-    buttons.append({"id": "dev:cancel", "title": "Cancelar"})
-    return buttons
+    nombre = (item or {}).get("nombre", "?")
+    unit = "bulto" if stock == 1 else "bultos"
+    body = (
+        f"Item *{item_id} {nombre}*\n"
+        f"Stock devolvible: *{stock} {unit}*\n"
+        f"¿Cuántos devolvés?"
+    )
+    header = "Devolución · paso 3/3"
+
+    if stock <= 2:
+        buttons: list[dict[str, str]] = []
+        for n in range(1, stock + 1):
+            buttons.append(
+                {"id": f"dev:qty:{pedido_id}:{item_id}:{n}", "title": str(n)}
+            )
+        buttons.append({"id": "dev:cancel", "title": "Cancelar"})
+        return "buttons", {"header": header, "body": body, "buttons": buttons}
+
+    # stock >= 3 → list (max 9 numeric rows + 1 cancel)
+    rows: list[dict[str, object]] = []
+    for n in range(1, min(stock, 9) + 1):
+        u = "bulto" if n == 1 else "bultos"
+        rows.append(
+            {"id": f"dev:qty:{pedido_id}:{item_id}:{n}", "title": f"{n} {u}"}
+        )
+    rows.append({"id": "dev:cancel", "title": "❌ Cancelar"})
+    return "list", {
+        "header": header,
+        "body": body,
+        "button_text": "Elegir cantidad",
+        "sections": [{"title": "Cantidad", "rows": rows}],
+    }
 
 
 def _build_dev_confirmation(pedido_id: str, item_id: str, qty: int) -> str:
@@ -368,22 +439,20 @@ def _dispatch_demo(
 
         if tapped_id.startswith("dev:item:"):
             _, _, pedido_id, item_id = tapped_id.split(":", 3)
-            items = DEV_DEMO_ITEMS_BY_PEDIDO.get(pedido_id, [])
-            item = next((i for i in items if i["id"] == item_id), None)
-            stock = (item or {}).get("stock_devolvible", 0)
-            unit = "bulto" if stock == 1 else "bultos"
-            client.send_buttons(
-                phone_number_id=phone_number_id,
-                to=to,
-                header="Devolución · paso 3/3",
-                body=(
-                    f"Item *{item_id} {(item or {}).get('nombre','?')}*\n"
-                    f"Stock devolvible: *{stock} {unit}*\n"
-                    f"¿Cuántos {unit} devuelve?"
-                ),
-                buttons=_build_dev_qty_buttons(pedido_id, item_id),
-            )
-            return {"sent": "dev_qty_buttons", "pedido": pedido_id, "item": item_id}
+            mode, kw = _build_dev_qty(pedido_id, item_id)
+            if mode == "buttons":
+                client.send_buttons(
+                    phone_number_id=phone_number_id, to=to, **kw
+                )
+            else:
+                client.send_list(
+                    phone_number_id=phone_number_id, to=to, **kw
+                )
+            return {
+                "sent": f"dev_qty_{mode}",
+                "pedido": pedido_id,
+                "item": item_id,
+            }
 
         if tapped_id.startswith("dev:qty:"):
             _, _, pedido_id, item_id, qty_s = tapped_id.split(":", 4)
