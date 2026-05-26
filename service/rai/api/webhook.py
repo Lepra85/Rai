@@ -346,7 +346,7 @@ def _build_comp_clientes_list() -> list[dict[str, object]]:
             "description": "Ingresar N° de cliente manualmente",
         }
     )
-    return [{"title": "Clientes con saldo pendiente", "rows": rows}]
+    return [{"title": "Clientes pendientes", "rows": rows}]
 
 
 def _build_comp_confirmation(cliente_id: str) -> str:

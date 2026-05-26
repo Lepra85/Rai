@@ -59,6 +59,17 @@ class WhatsAppClient:
         url = self._url(phone_number_id)
         with httpx.Client(timeout=self._timeout) as http:
             r = http.post(url, headers=self._headers(), json=body)
+            if r.status_code >= 400:
+                # Include the response body so future Meta validation errors
+                # surface what was actually wrong (status text alone is useless).
+                import logging
+
+                logging.getLogger(__name__).error(
+                    "kapso send failed: status=%s body_in=%s body_out=%s",
+                    r.status_code,
+                    body,
+                    r.text[:1000],
+                )
             r.raise_for_status()
             data = r.json()
         msgs = data.get("messages") or []
