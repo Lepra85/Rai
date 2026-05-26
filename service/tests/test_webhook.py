@@ -347,11 +347,11 @@ def test_demo_dispatch_button_tap_echoes() -> None:
     assert "btn_devolucion" in kw["body"]
 
 
-def test_demo_dispatch_pedidos_command_sends_report() -> None:
-    """/pedidos slash command → single send_text with the chofer report."""
+def test_demo_dispatch_pedidos_button_sends_report() -> None:
+    """Tapping the "Pedidos" reply button → single send_text with the chofer report."""
     c, fake = _client_with_fake_wa()
     try:
-        body = _v2_inbound_text("/pedidos")
+        body = _v2_interactive_button_tap("btn_pedidos")
         r = c.post(
             "/webhook/whatsapp",
             content=body,
@@ -365,19 +365,17 @@ def test_demo_dispatch_pedidos_command_sends_report() -> None:
     assert len(fake.calls) == 1
     method, kw = fake.calls[0]
     assert method == "send_text"
-    # Spot-check the report shape and known content.
+    # Spot-check the report content.
     assert "INTERNO 6 - RIVERO JORGE" in kw["body"]
     assert "Total transferido" in kw["body"]
     assert "2.471.210,01" in kw["body"]
-    # Should NOT also send buttons/list.
-    assert all(m != "send_buttons" for m, _ in fake.calls)
-    assert all(m != "send_list" for m, _ in fake.calls)
 
 
-def test_demo_dispatch_pedidos_is_case_insensitive_and_trims() -> None:
+def test_demo_dispatch_other_buttons_still_echo() -> None:
+    """Non-pedidos buttons keep the echo behavior."""
     c, fake = _client_with_fake_wa()
     try:
-        body = _v2_inbound_text("  /Pedidos  ")
+        body = _v2_interactive_button_tap("btn_devolucion")
         r = c.post(
             "/webhook/whatsapp",
             content=body,
@@ -389,7 +387,10 @@ def test_demo_dispatch_pedidos_is_case_insensitive_and_trims() -> None:
 
     assert r.status_code == 200
     assert len(fake.calls) == 1
-    assert fake.calls[0][0] == "send_text"
+    kw = fake.calls[0][1]
+    assert "btn_devolucion" in kw["body"]
+    # Specifically: did NOT send the pedidos report.
+    assert "INTERNO 6" not in kw["body"]
 
 
 def test_demo_dispatch_skips_outbound_messages() -> None:

@@ -200,15 +200,6 @@ def _dispatch_demo(
     kind = msg.get("type")
 
     if kind == "text":
-        text = (msg.get("text") or {}).get("body", "").strip().lower()
-
-        # Slash command: /pedidos → hardcoded chofer report (demo).
-        if text == "/pedidos":
-            client.send_text(
-                phone_number_id=phone_number_id, to=to, body=PEDIDOS_REPORT
-            )
-            return {"sent": "pedidos_report"}
-
         client.send_buttons(
             phone_number_id=phone_number_id,
             to=to,
@@ -235,6 +226,15 @@ def _dispatch_demo(
         elif inter.get("type") == "list_reply":
             lr = inter.get("list_reply") or {}
             tapped_id, label = lr.get("id", "?"), lr.get("title", "?")
+
+        # Specific button → hardcoded /pedidos report (demo).
+        if tapped_id == "btn_pedidos":
+            client.send_text(
+                phone_number_id=phone_number_id, to=to, body=PEDIDOS_REPORT
+            )
+            return {"sent": "pedidos_report"}
+
+        # Default: echo what was tapped.
         client.send_text(
             phone_number_id=phone_number_id,
             to=to,
