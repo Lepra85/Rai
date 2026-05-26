@@ -347,6 +347,51 @@ def test_demo_dispatch_button_tap_echoes() -> None:
     assert "btn_devolucion" in kw["body"]
 
 
+def test_demo_dispatch_pedidos_command_sends_report() -> None:
+    """/pedidos slash command → single send_text with the chofer report."""
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_inbound_text("/pedidos")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert len(fake.calls) == 1
+    method, kw = fake.calls[0]
+    assert method == "send_text"
+    # Spot-check the report shape and known content.
+    assert "INTERNO 6 - RIVERO JORGE" in kw["body"]
+    assert "Total transferido" in kw["body"]
+    assert "2.471.210,01" in kw["body"]
+    # Should NOT also send buttons/list.
+    assert all(m != "send_buttons" for m, _ in fake.calls)
+    assert all(m != "send_list" for m, _ in fake.calls)
+
+
+def test_demo_dispatch_pedidos_is_case_insensitive_and_trims() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_inbound_text("  /Pedidos  ")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert len(fake.calls) == 1
+    assert fake.calls[0][0] == "send_text"
+
+
 def test_demo_dispatch_skips_outbound_messages() -> None:
     """We must NOT respond to our own outbound sends (would infinite-loop)."""
     c, fake = _client_with_fake_wa()

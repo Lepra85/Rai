@@ -140,6 +140,28 @@ DEMO_BUTTONS = [
     {"id": "btn_comprobantes", "title": "Comprobantes"},
 ]
 
+# Hardcoded /pedidos response — drops the "indica tu ID de chofer" turn;
+# in real life the chofer is derived from the WhatsApp number sending the
+# message. WhatsApp text formatting uses *bold* and emojis render inline.
+PEDIDOS_REPORT = (
+    "Chofer: *INTERNO 6 - RIVERO JORGE*\n"
+    "Comprobantes de transferencias: *12 / 37*\n"
+    "Detalle transferencias (Transferido / Saldo):\n"
+    "-- 1375 - $ 18.790,00 / $ 18.790,19 ✅\n"
+    "-- 1401 - $ 108.785,01 / $ 234.582,35 🟨\n"
+    "-- 1543 - $ 286.341,00 / $ 286.341,15 ✅\n"
+    "-- 1566 - $ 49.890,00 / $ 49.890,71 ✅\n"
+    "-- 1594 - $ 74.235,00 / $ 74.235,87 ✅\n"
+    "-- 2130 - $ 722.611,00 / $ 722.612,76 🟨\n"
+    "-- 2194 - $ 47.576,00 / $ 47.576,20 ✅\n"
+    "-- 3305 - $ 56.099,00 / $ 78.891,39 🟨\n"
+    "-- 3314 - $ 851.490,00 / $ 851.491,87 🟨\n"
+    "-- 3367 - $ 178.926,00 / $ 178.126,18 🟦\n"
+    "-- 4458 - $ 21.033,00 / $ 21.033,55 ✅\n"
+    "-- 5505 - $ 55.434,00 / $ 55.434,55 ✅\n"
+    "Total transferido: *$ 2.471.210,01*"
+)
+
 DEMO_LIST_SECTIONS = [
     {
         "title": "Animales",
@@ -178,6 +200,15 @@ def _dispatch_demo(
     kind = msg.get("type")
 
     if kind == "text":
+        text = (msg.get("text") or {}).get("body", "").strip().lower()
+
+        # Slash command: /pedidos → hardcoded chofer report (demo).
+        if text == "/pedidos":
+            client.send_text(
+                phone_number_id=phone_number_id, to=to, body=PEDIDOS_REPORT
+            )
+            return {"sent": "pedidos_report"}
+
         client.send_buttons(
             phone_number_id=phone_number_id,
             to=to,
