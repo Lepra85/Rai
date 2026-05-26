@@ -338,3 +338,31 @@ def test_signature_check_runs_before_role_gate(client, empresa_with_users):
         json={"phone_number_id": e.phone_number_id, "contacto": u.contacto},
     )
     assert r.status_code == 401
+
+
+# -- Envelope and identity-before-catalog ordering --------------------------
+
+
+def test_malformed_envelope_returns_422_not_500(client):
+    """A signed body that omits phone_number_id/contacto must surface as
+    invalid_args (422), not crash to 500."""
+    body = b"{}"
+    sig = compute_signature(body, TEST_FLOW_API_SECRET)
+    r = client.post(
+        "/op/ayuda",
+        content=body,
+        headers={SIGNATURE_HEADER: sig, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+    assert r.json()["error"] == "invalid_args"
+
+
+def test_unknown_tenant_takes_precedence_over_unknown_operation(client):
+    """A signed caller from an unregistered tenant requesting a fake op MUST
+    receive `unknown_tenant`, not `unknown_operation` — otherwise op_ids leak
+    to anyone with the shared secret regardless of tenant registration."""
+    r = _post_op(
+        client, "totally-not-a-real-op", phone_number_id="ghost-tenant", contacto="x"
+    )
+    assert r.status_code == 404
+    assert r.json()["error"] == "unknown_tenant"

@@ -2,13 +2,17 @@
 
 Order on every call (any step failing terminates with the appropriate error):
   1. HMAC signature (the `require_signed_request` dependency).
-  2. Identity resolution: phone_number_id → empresa, contacto → usuario+rol.
-     Tenant unknown → UnknownTenantError.
-     Sender unknown → UnknownSenderError.
-  3. Operation lookup: op_id ∈ catalog. Else UnknownOperationError.
-  4. Role gate: rol ∈ op.allowed_roles. Else UnauthorizedError.
-  5. Args validation against op.args_schema. Else InvalidArgsError.
-  6. Dispatch to HANDLERS[op_id] with an OpContext.
+  2. Envelope validation: body parses as OpRequest. Else InvalidArgsError (422).
+  3. Identity resolution: phone_number_id → empresa, contacto → usuario+rol.
+     Tenant unknown → UnknownTenantError. Sender unknown → UnknownSenderError.
+  4. Operation lookup: op_id ∈ catalog. Else UnknownOperationError.
+  5. Role gate: rol ∈ op.allowed_roles. Else UnauthorizedError.
+  6. Args validation against op.args_schema. Else InvalidArgsError.
+  7. Dispatch to HANDLERS[op_id] with an OpContext.
+
+Identity is checked BEFORE op lookup so a signed caller from an unregistered
+tenant cannot enumerate the catalog by distinguishing unknown_operation from
+unknown_tenant.
 """
 from __future__ import annotations
 
@@ -47,25 +51,32 @@ async def dispatch(
     body: bytes = Depends(require_signed_request),
     db: Session = Depends(get_db),
 ) -> Any:
-    req = OpRequest.model_validate_json(body)
+    # 1. Envelope validation — bad shape from a signed caller is invalid_args,
+    #    not a 500. (Pydantic raises ValidationError; we surface it uniformly.)
+    try:
+        req = OpRequest.model_validate_json(body)
+    except ValidationError as e:
+        raise InvalidArgsError(str(e))
 
-    # 1. Lookup op (before identity so we fail fast on bad URLs).
-    op = OPERATIONS.get(op_id)
-    if op is None:
-        raise UnknownOperationError(f"unknown operation: {op_id}")
-
-    # 2. Identity (also runs the implicit tenant gate via DB scoping).
+    # 2. Identity FIRST — authenticate the sender before exposing anything
+    #    about the catalog. A signed caller from an unregistered tenant must
+    #    not be able to enumerate op_ids by status code.
     resolved = resolve_caller(db, req.phone_number_id, req.contacto)
     if resolved is None:
         raise UnknownSenderError("sender is not registered for this tenant")
 
-    # 3. Role gate.
+    # 3. Operation lookup against the catalog.
+    op = OPERATIONS.get(op_id)
+    if op is None:
+        raise UnknownOperationError(f"unknown operation: {op_id}")
+
+    # 4. Role gate.
     if resolved.usuario.rol not in op.allowed_roles:
         raise UnauthorizedError(
             f"role {resolved.usuario.rol.value} cannot invoke {op_id}"
         )
 
-    # 4. Args validation against catalog schema.
+    # 5. Args validation against the catalog's typed schema.
     try:
         args_model = op.args_schema.model_validate(req.args)
     except ValidationError as e:
