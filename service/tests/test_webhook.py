@@ -153,3 +153,74 @@ def test_webhook_rejects_unsigned(client) -> None:
     r = client.post("/webhook/whatsapp", json={"object": "whatsapp_business_account"})
     # Either 401 (missing signature) or 500 (no secret) — both are "rejected".
     assert r.status_code in (401, 500)
+
+
+def test_webhook_accepts_kapso_v2_inbound_text(client) -> None:
+    """Kapso payload_version=v2: single-message envelope with `message`,
+    `conversation`, `phone_number_id`, `is_new_conversation` at top level."""
+    payload = {
+        "message": {
+            "id": "wamid.v2_test",
+            "timestamp": "1779800000",
+            "type": "text",
+            "from": "5491100000000",
+            "text": {"body": "hola"},
+            "kapso": {"direction": "inbound", "content": "hola"},
+        },
+        "conversation": {"id": "conv_x", "phone_number": "5491100000000"},
+        "is_new_conversation": True,
+        "phone_number_id": "597907523413541",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    from rai.config import get_settings as real_gs
+
+    def gs() -> Settings:
+        return Settings(kapso_webhook_secret=SECRET, flow_api_secret="ignored")
+
+    client.app.dependency_overrides[real_gs] = gs
+    try:
+        r = client.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        client.app.dependency_overrides.pop(real_gs, None)
+
+    assert r.status_code == 200
+    assert r.json() == {"received": 1}
+
+
+def test_webhook_handles_outbound_v2_payload(client) -> None:
+    """whatsapp.message.sent events arrive as v2 with direction=outbound.
+    They should still be accepted (received=1, gives observability)."""
+    payload = {
+        "message": {
+            "id": "wamid.out",
+            "type": "text",
+            "from": "597907523413541",
+            "text": {"body": "respuesta"},
+            "kapso": {"direction": "outbound"},
+        },
+        "conversation": {"id": "conv_y", "phone_number": "5491100000000"},
+        "is_new_conversation": False,
+        "phone_number_id": "597907523413541",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    from rai.config import get_settings as real_gs
+
+    def gs() -> Settings:
+        return Settings(kapso_webhook_secret=SECRET, flow_api_secret="ignored")
+
+    client.app.dependency_overrides[real_gs] = gs
+    try:
+        r = client.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        client.app.dependency_overrides.pop(real_gs, None)
+
+    assert r.status_code == 200
+    assert r.json() == {"received": 1}
