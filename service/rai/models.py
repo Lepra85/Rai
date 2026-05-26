@@ -9,6 +9,8 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
+from enum import Enum
+
 from sqlalchemy import (
     Date,
     DateTime,
@@ -21,7 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from rai.db import Base
@@ -123,4 +125,68 @@ class Stock(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+
+class ConversationState(str, Enum):
+    """Per-conversation state machine (set by the router in M)."""
+
+    IDLE = "idle"
+    MENU_SHOWN = "menu_shown"
+    AWAITING_ARGS = "awaiting_args"
+    AGENT_ACTIVE = "agent_active"
+    HUMAN_HANDOFF = "human_handoff"
+
+
+class Conversation(Base):
+    """One row per (empresa_id, contacto) tuple.
+
+    `history` keeps a short JSONB tail of recent messages — bounded to
+    HISTORY_MAX entries by the helpers in `rai.conversation`. It is the
+    context fed to the LLM on the rare free-text fallback path; the bulk
+    of UX flows through deterministic catalog commands and does not
+    touch this list.
+    """
+
+    __tablename__ = "conversaciones"
+    __table_args__ = (
+        UniqueConstraint(
+            "empresa_id", "contacto", name="uq_conversaciones_empresa_contacto"
+        ),
+        Index(
+            "ix_conversaciones_empresa_contacto", "empresa_id", "contacto"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    empresa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("empresas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contacto: Mapped[str] = mapped_column(String(100), nullable=False)
+    state: Mapped[ConversationState] = mapped_column(
+        SAEnum(
+            ConversationState,
+            name="conversation_state",
+            values_callable=lambda enum: [m.value for m in enum],
+        ),
+        nullable=False,
+        default=ConversationState.IDLE,
+        server_default=ConversationState.IDLE.value,
+    )
+    current_op_id: Mapped[str | None] = mapped_column(String(64))
+    history: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    opt_in_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_message_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
