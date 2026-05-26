@@ -1,0 +1,24 @@
+[Unit]
+Description=Rai Domain Service (FastAPI, multi-tenant WhatsApp backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rai
+Group=rai
+WorkingDirectory=/home/rai/repo/service
+EnvironmentFile=/home/rai/repo/service/.env
+ExecStart=/home/rai/repo/service/.venv/bin/uvicorn rai.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/rai-service.log
+StandardError=append:/var/log/rai-service.log
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/rai /var/log
+
+[Install]
+WantedBy=multi-user.target
