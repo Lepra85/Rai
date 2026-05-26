@@ -1,6 +1,8 @@
 """FastAPI app entrypoint for the Rai domain service."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -9,6 +11,13 @@ from rai.api import op as op_api
 from rai.api import resolve as resolve_api
 from rai.api import webhook as webhook_api
 from rai.errors import RaiError
+
+# Make module-level loggers visible. Uvicorn captures stdout/stderr into the
+# systemd journal / log file; this just sets the floor.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+)
 
 app = FastAPI(title="Rai Domain Service", version=__version__)
 app.include_router(resolve_api.router)
