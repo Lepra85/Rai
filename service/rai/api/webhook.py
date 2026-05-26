@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from rai.config import Settings, get_settings
+from rai.whatsapp.client import WhatsAppClient, get_default_client
 
 log = logging.getLogger(__name__)
 
@@ -127,9 +128,96 @@ def _summarize_messages(payload: dict[str, Any]) -> list[str]:
     return _summarize_meta_native(payload)
 
 
+# --- UX experiment (M' minimal) -------------------------------------------
+# Until commit M wires the real router, every inbound text triggers a
+# demo response: 3 reply buttons + a list with 5 animals. Taps echo back
+# the row/button id. Purpose: validate WhatsApp interactive UX before
+# committing to a routing architecture.
+
+DEMO_BUTTONS = [
+    {"id": "btn_pedidos", "title": "Pedidos"},
+    {"id": "btn_devolucion", "title": "Devolucion"},
+    {"id": "btn_comprobantes", "title": "Comprobantes"},
+]
+
+DEMO_LIST_SECTIONS = [
+    {
+        "title": "Animales",
+        "rows": [
+            {"id": "animal_perro", "title": "Perro", "description": "Mamífero doméstico"},
+            {"id": "animal_gato", "title": "Gato", "description": "Felino doméstico"},
+            {"id": "animal_hamster", "title": "Hamster", "description": "Roedor pequeño"},
+            {"id": "animal_tortuga", "title": "Tortuga", "description": "Reptil con caparazón"},
+            {"id": "animal_cobaya", "title": "Cobaya", "description": "Roedor sudamericano"},
+        ],
+    }
+]
+
+
+def _dispatch_demo(
+    client: WhatsAppClient, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Demo responder. Real router lands in commit M.
+
+    Only handles Kapso v2 inbound messages with direction=inbound; skips
+    outbound (whatsapp.message.sent) to avoid responding to our own sends.
+    """
+    msg = payload.get("message") or {}
+    if not isinstance(msg, dict):
+        return {"skipped": "no_message"}
+
+    direction = (msg.get("kapso") or {}).get("direction")
+    if direction != "inbound":
+        return {"skipped": f"direction={direction}"}
+
+    phone_number_id = payload.get("phone_number_id")
+    to = msg.get("from")
+    if not phone_number_id or not to:
+        return {"skipped": "missing_phone_or_from"}
+
+    kind = msg.get("type")
+
+    if kind == "text":
+        client.send_buttons(
+            phone_number_id=phone_number_id,
+            to=to,
+            header="Rai · demo",
+            body="¿Qué necesitás?",
+            buttons=DEMO_BUTTONS,
+        )
+        client.send_list(
+            phone_number_id=phone_number_id,
+            to=to,
+            header="Bestiario",
+            body="Elegí un animal (es solo demo)",
+            button_text="Ver animales",
+            sections=DEMO_LIST_SECTIONS,
+        )
+        return {"sent": "buttons+list"}
+
+    if kind == "interactive":
+        inter = msg.get("interactive") or {}
+        tapped_id, label = "?", "?"
+        if inter.get("type") == "button_reply":
+            br = inter.get("button_reply") or {}
+            tapped_id, label = br.get("id", "?"), br.get("title", "?")
+        elif inter.get("type") == "list_reply":
+            lr = inter.get("list_reply") or {}
+            tapped_id, label = lr.get("id", "?"), lr.get("title", "?")
+        client.send_text(
+            phone_number_id=phone_number_id,
+            to=to,
+            body=f"Tapeaste: {label} (id={tapped_id})",
+        )
+        return {"sent": "echo", "id": tapped_id}
+
+    return {"skipped": f"type={kind}"}
+
+
 @router.post("/webhook/whatsapp", status_code=200)
 async def whatsapp_webhook(
     body: bytes = Depends(require_kapso_signed_request),
+    client: WhatsAppClient = Depends(get_default_client),
 ) -> dict[str, Any]:
     try:
         payload = json.loads(body)
@@ -145,12 +233,16 @@ async def whatsapp_webhook(
         for s in summaries:
             log.info("inbound: %s", s)
     else:
-        # Unknown shape — log enough to diagnose without dumping the whole body.
         log.info(
             "inbound: unrecognized payload keys=%s",
             sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
         )
 
-    # Kapso considers any 2xx an ACK and will not retry. Real handling
-    # belongs in a later commit; for now we accept and move on.
+    # Demo response (commit M' — UX experiment).
+    try:
+        result = _dispatch_demo(client, payload)
+        log.info("demo dispatch: %s", result)
+    except Exception as e:  # pragma: no cover — keep webhook 200 even if send fails
+        log.exception("demo dispatch failed: %s", e)
+
     return {"received": len(summaries)}

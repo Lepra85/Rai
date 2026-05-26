@@ -224,3 +224,152 @@ def test_webhook_handles_outbound_v2_payload(client) -> None:
 
     assert r.status_code == 200
     assert r.json() == {"received": 1}
+
+
+# --- Demo dispatcher (M' UX experiment) -------------------------------------
+
+
+class _FakeWAClient:
+    """Stand-in for WhatsAppClient that records calls without hitting Kapso."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def send_text(self, **kw):
+        self.calls.append(("send_text", kw))
+
+    def send_buttons(self, **kw):
+        self.calls.append(("send_buttons", kw))
+
+    def send_list(self, **kw):
+        self.calls.append(("send_list", kw))
+
+
+def _client_with_fake_wa(secret: str = SECRET) -> tuple[TestClient, _FakeWAClient]:
+    from rai.api.webhook import get_default_client as wc_dep
+    from rai.config import get_settings as real_gs
+    from rai.main import app
+
+    fake = _FakeWAClient()
+
+    def fake_settings() -> Settings:
+        return Settings(kapso_webhook_secret=secret, kapso_api_key="ignored")
+
+    app.dependency_overrides[real_gs] = fake_settings
+    app.dependency_overrides[wc_dep] = lambda: fake
+    return TestClient(app), fake
+
+
+def _v2_inbound_text(text: str = "hola") -> bytes:
+    return json.dumps(
+        {
+            "message": {
+                "id": "wamid.1",
+                "type": "text",
+                "from": "541159200080",
+                "text": {"body": text},
+                "kapso": {"direction": "inbound"},
+            },
+            "conversation": {"id": "c", "phone_number": "541159200080"},
+            "is_new_conversation": True,
+            "phone_number_id": "597907523413541",
+        }
+    ).encode()
+
+
+def _v2_interactive_button_tap(button_id: str = "btn_pedidos") -> bytes:
+    return json.dumps(
+        {
+            "message": {
+                "id": "wamid.2",
+                "type": "interactive",
+                "from": "541159200080",
+                "interactive": {
+                    "type": "button_reply",
+                    "button_reply": {"id": button_id, "title": "Pedidos"},
+                },
+                "kapso": {"direction": "inbound"},
+            },
+            "conversation": {"id": "c", "phone_number": "541159200080"},
+            "is_new_conversation": False,
+            "phone_number_id": "597907523413541",
+        }
+    ).encode()
+
+
+def test_demo_dispatch_text_sends_buttons_and_list() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_inbound_text("hola")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    methods = [m for m, _ in fake.calls]
+    assert methods == ["send_buttons", "send_list"]
+    btn_call = fake.calls[0][1]
+    titles = [b["title"] for b in btn_call["buttons"]]
+    assert titles == ["Pedidos", "Devolucion", "Comprobantes"]
+    list_call = fake.calls[1][1]
+    list_ids = [r["id"] for r in list_call["sections"][0]["rows"]]
+    assert list_ids == [
+        "animal_perro",
+        "animal_gato",
+        "animal_hamster",
+        "animal_tortuga",
+        "animal_cobaya",
+    ]
+
+
+def test_demo_dispatch_button_tap_echoes() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("btn_devolucion")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert len(fake.calls) == 1
+    method, kw = fake.calls[0]
+    assert method == "send_text"
+    assert "btn_devolucion" in kw["body"]
+
+
+def test_demo_dispatch_skips_outbound_messages() -> None:
+    """We must NOT respond to our own outbound sends (would infinite-loop)."""
+    c, fake = _client_with_fake_wa()
+    try:
+        payload = {
+            "message": {
+                "id": "wamid.out",
+                "type": "text",
+                "from": "597907523413541",
+                "text": {"body": "hi"},
+                "kapso": {"direction": "outbound"},
+            },
+            "phone_number_id": "597907523413541",
+        }
+        body = json.dumps(payload).encode()
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls == []  # zero sends in response

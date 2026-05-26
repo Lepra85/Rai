@@ -87,3 +87,91 @@ class WhatsAppClient:
                 "message_id": message_id,
             },
         )
+
+    def send_buttons(
+        self,
+        *,
+        phone_number_id: str,
+        to: str,
+        body: str,
+        buttons: list[dict[str, str]],
+        header: str | None = None,
+        footer: str | None = None,
+    ) -> SendResult:
+        """Send an interactive "reply buttons" message (max 3 buttons).
+
+        Each item in `buttons` is `{"id": "...", "title": "..."}` — title
+        max 20 chars. When the user taps, Kapso fires a webhook with
+        message.type="interactive" and interactive.button_reply.id = our id.
+        """
+        if not 1 <= len(buttons) <= 3:
+            raise ValueError("buttons must have between 1 and 3 items")
+        action = {
+            "buttons": [
+                {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
+                for b in buttons
+            ]
+        }
+        interactive: dict[str, object] = {
+            "type": "button",
+            "body": {"text": body},
+            "action": action,
+        }
+        if header:
+            interactive["header"] = {"type": "text", "text": header}
+        if footer:
+            interactive["footer"] = {"text": footer}
+        return self._post(
+            phone_number_id,
+            {
+                "messaging_product": "whatsapp",
+                "to": to,
+                "type": "interactive",
+                "interactive": interactive,
+            },
+        )
+
+    def send_list(
+        self,
+        *,
+        phone_number_id: str,
+        to: str,
+        body: str,
+        button_text: str,
+        sections: list[dict[str, object]],
+        header: str | None = None,
+        footer: str | None = None,
+    ) -> SendResult:
+        """Send an interactive "list" message.
+
+        `sections` shape: list of `{"title": "...", "rows": [{"id":..,
+        "title":.., "description":..}, ...]}`. Limits enforced by Meta:
+        max 10 rows total across sections; row title 24 chars; description
+        72 chars; button_text 20 chars.
+        """
+        interactive: dict[str, object] = {
+            "type": "list",
+            "body": {"text": body},
+            "action": {"button": button_text, "sections": sections},
+        }
+        if header:
+            interactive["header"] = {"type": "text", "text": header}
+        if footer:
+            interactive["footer"] = {"text": footer}
+        return self._post(
+            phone_number_id,
+            {
+                "messaging_product": "whatsapp",
+                "to": to,
+                "type": "interactive",
+                "interactive": interactive,
+            },
+        )
+
+
+def get_default_client() -> "WhatsAppClient":
+    """FastAPI dependency — build a client from current settings."""
+    from rai.config import get_settings
+
+    settings = get_settings()
+    return WhatsAppClient(api_key=settings.kapso_api_key)
