@@ -13,14 +13,14 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from rai.auth import require_signed_request
 from rai.catalog import menu_for_role
 from rai.db import get_db
-from rai.models import Empresa, Usuario
+from rai.identity import resolve_caller
 from rai.roles import Role
 
 log = logging.getLogger(__name__)
@@ -74,38 +74,20 @@ async def resolve(
 ) -> ResolveOk | ResolveUnregistered:
     req = ResolveRequest.model_validate_json(body)
 
-    empresa = (
-        db.query(Empresa)
-        .filter(Empresa.phone_number_id == req.phone_number_id)
-        .one_or_none()
-    )
-    if empresa is None:
-        # Unknown tenant — should not happen for a connected number; log it.
-        log.warning("resolve: unknown phone_number_id=%s", req.phone_number_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="unknown tenant",
-        )
-
-    usuario = (
-        db.query(Usuario)
-        .filter(
-            Usuario.empresa_id == empresa.id,
-            Usuario.contacto == req.contacto,
-        )
-        .one_or_none()
-    )
-    if usuario is None:
-        # Sender is not registered for this empresa — polite rejection path.
+    # UnknownTenantError → 404 via the global exception handler.
+    resolved = resolve_caller(db, req.phone_number_id, req.contacto)
+    if resolved is None:
+        # Polite-rejection path from SPEC §11.
         return ResolveUnregistered()
 
     menu = [
-        MenuItem(id=op.id, label=op.menu_label) for op in menu_for_role(usuario.rol)
+        MenuItem(id=op.id, label=op.menu_label)
+        for op in menu_for_role(resolved.usuario.rol)
     ]
 
     return ResolveOk(
-        empresa=EmpresaInfo(id=empresa.id, nombre=empresa.nombre),
-        usuario=UsuarioInfo(id=usuario.id, nombre=usuario.nombre),
-        rol=usuario.rol,
+        empresa=EmpresaInfo(id=resolved.empresa.id, nombre=resolved.empresa.nombre),
+        usuario=UsuarioInfo(id=resolved.usuario.id, nombre=resolved.usuario.nombre),
+        rol=resolved.usuario.rol,
         menu=menu,
     )

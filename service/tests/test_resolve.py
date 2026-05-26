@@ -87,7 +87,7 @@ def test_resolve_unknown_tenant_returns_404(client) -> None:
     r = client.post("/resolve", content=body, headers=headers)
 
     assert r.status_code == 404
-    assert r.json()["detail"] == "unknown tenant"
+    assert r.json()["error"] == "unknown_tenant"
 
 
 def test_resolve_rejects_unsigned_request(client, empresa_with_users) -> None:
