@@ -1,13 +1,13 @@
 # Caddy config for the Rai domain service.
-# Public hostname uses sslip.io free DNS: <dashed-ip>.sslip.io resolves to
-# the droplet's public IPv4. Let's Encrypt issues a real cert against this
-# hostname automatically.
+# Public hostname uses DuckDNS free DNS: raiagent.duckdns.org → droplet IPv4.
+# duckdns.org is on the Public Suffix List so Let's Encrypt treats each
+# subdomain as its own registered domain — independent rate limits.
 #
 # When you migrate to a real domain, swap the host line below and run
 #   sudo systemctl reload caddy
 # Nothing else changes — same upstream, same routes.
 
-159-203-122-175.sslip.io {
+raiagent.duckdns.org {
 	encode zstd gzip
 
 	# Forward everything to the FastAPI service bound to localhost.

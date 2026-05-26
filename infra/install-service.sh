@@ -20,7 +20,7 @@ UNIT_SRC=$REPO_DIR/infra/systemd/rai-service.service
 UNIT_DST=/etc/systemd/system/rai-service.service
 CADDY_SRC=$REPO_DIR/infra/Caddyfile
 CADDY_DST=/etc/caddy/Caddyfile
-HOSTNAME=159-203-122-175.sslip.io
+HOSTNAME=raiagent.duckdns.org
 
 if [[ $EUID -ne 0 ]]; then
 	echo "ERROR: run as root (sudo)" >&2
