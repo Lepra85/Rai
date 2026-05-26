@@ -303,6 +303,70 @@ def _build_dev_confirmation(pedido_id: str, item_id: str, qty: int) -> str:
     )
 
 
+# --- /comprobantes demo data + in-memory state -----------------------------
+# Unlike pedidos and devolución which fit a stateless ID-encoded flow, the
+# comprobantes flow needs to remember "this user picked client X" between
+# the client tap and the subsequent image upload (images don't carry the
+# client context). We hold the state in a process-local dict for the demo;
+# real M+1 persists this in the Conversation table.
+#
+# Single-worker uvicorn is set in the systemd unit while we're in demo phase.
+
+COMP_DEMO_CLIENTES = [
+    {"id": "3115", "nombre": "DADAN JOSE",      "saldo": "$ 24.054,02"},
+    {"id": "3249", "nombre": "FARINA FERNANDA", "saldo": "$ 35.142,41"},
+    {"id": "3250", "nombre": "PEREZ JUAN",      "saldo": "$ 28.500,00"},
+    {"id": "3251", "nombre": "GOMEZ MARIA",     "saldo": "$ 92.350,00"},
+    {"id": "3252", "nombre": "LOPEZ CARLOS",    "saldo": "$ 14.200,00"},
+    {"id": "3253", "nombre": "RODRIGUEZ ANA",   "saldo": "$ 67.890,50"},
+    {"id": "3254", "nombre": "MARTINEZ LUIS",   "saldo": "$ 41.700,00"},
+    {"id": "3255", "nombre": "SANCHEZ LAURA",   "saldo": "$ 19.450,75"},
+]
+
+COMP_DEMO_CLIENTE_BY_ID: dict[str, dict] = {c["id"]: c for c in COMP_DEMO_CLIENTES}
+
+# (phone_number_id, contacto) → {"cliente_id": "...", "set_at": ts}
+_COMP_DEMO_STATE: dict[tuple[str, str], dict] = {}
+
+
+def _build_comp_clientes_list() -> list[dict[str, object]]:
+    rows = []
+    for c in COMP_DEMO_CLIENTES:
+        rows.append(
+            {
+                "id": f"comp:cliente:{c['id']}",
+                "title": f"{c['id']} {c['nombre']}"[:24],
+                "description": f"Saldo {c['saldo']}"[:72],
+            }
+        )
+    rows.append(
+        {
+            "id": "comp:cliente:_search",
+            "title": "🔎 Buscar por N° cliente",
+            "description": "Ingresar N° de cliente manualmente",
+        }
+    )
+    return [{"title": "Clientes con saldo pendiente", "rows": rows}]
+
+
+def _build_comp_confirmation(cliente_id: str) -> str:
+    c = COMP_DEMO_CLIENTE_BY_ID.get(cliente_id)
+    if c is None:
+        return "⚠️ Comprobante recibido pero el cliente ya no está activo en esta sesión."
+    # The "amount detected" is hardcoded to match exactly the saldo so the
+    # demo always shows the happy path. Real M+1 reads it via OCR (Gemini
+    # Vision / Claude Vision) against the uploaded media.
+    monto = c["saldo"]
+    return (
+        "✅ *Comprobante recibido*\n"
+        f"Cliente: *{c['nombre']}* ({c['id']})\n"
+        f"Monto detectado: *{monto}*\n"
+        f"Saldo pendiente: *{monto}*\n"
+        "Diferencia: $ 0,00 ✓ coincide\n"
+        "Estado: *Registrado*"
+    )
+
+
 # Hardcoded /pedidos response — drops the "indica tu ID de chofer" turn;
 # in real life the chofer is derived from the WhatsApp number sending the
 # message. WhatsApp text formatting uses *bold* and emojis render inline.
@@ -362,6 +426,24 @@ def _dispatch_demo(
 
     kind = msg.get("type")
 
+    if kind == "image":
+        state = _COMP_DEMO_STATE.get((phone_number_id, to))
+        if state is None:
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body="Recibí una imagen pero no tengo un cliente activo. Tocá *Comprobantes* primero.",
+            )
+            return {"sent": "comp_image_without_state"}
+        cliente_id = state["cliente_id"]
+        client.send_text(
+            phone_number_id=phone_number_id,
+            to=to,
+            body=_build_comp_confirmation(cliente_id),
+        )
+        _COMP_DEMO_STATE.pop((phone_number_id, to), None)
+        return {"sent": "comp_image_acked", "cliente": cliente_id}
+
     if kind == "text":
         client.send_buttons(
             phone_number_id=phone_number_id,
@@ -396,6 +478,64 @@ def _dispatch_demo(
                 phone_number_id=phone_number_id, to=to, body=PEDIDOS_REPORT
             )
             return {"sent": "pedidos_report"}
+
+        # /comprobantes flow — uses in-memory state to bridge the gap
+        # between client selection (tap) and receipt upload (image).
+        if tapped_id == "btn_comprobantes":
+            client.send_list(
+                phone_number_id=phone_number_id,
+                to=to,
+                header="Comprobantes · paso 1/2",
+                body="¿Para qué cliente es el pago?",
+                button_text="Ver clientes",
+                sections=_build_comp_clientes_list(),
+            )
+            return {"sent": "comp_clientes_list"}
+
+        if tapped_id == "comp:cliente:_search":
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body="🔎 (demo) En producción acá te abrimos input para tipear N° de cliente.",
+            )
+            return {"sent": "comp_search_stub"}
+
+        if tapped_id.startswith("comp:cliente:"):
+            cliente_id = tapped_id.split(":", 2)[2]
+            c = COMP_DEMO_CLIENTE_BY_ID.get(cliente_id)
+            if c is None:
+                client.send_text(
+                    phone_number_id=phone_number_id,
+                    to=to,
+                    body="Cliente no encontrado. Volvé al menú con cualquier mensaje.",
+                )
+                return {"sent": "comp_unknown_client"}
+            # Remember which client this user is loading a comprobante for.
+            _COMP_DEMO_STATE[(phone_number_id, to)] = {"cliente_id": cliente_id}
+            client.send_buttons(
+                phone_number_id=phone_number_id,
+                to=to,
+                header="Comprobantes · paso 2/2",
+                body=(
+                    f"Cliente: *{c['nombre']}* ({cliente_id})\n"
+                    f"Saldo pendiente: *{c['saldo']}*\n"
+                    "Enviame foto o screenshot del comprobante de transferencia."
+                ),
+                buttons=[
+                    {"id": "comp:cancel", "title": "Cancelar"},
+                    {"id": "btn_comprobantes", "title": "Cambiar cliente"},
+                ],
+            )
+            return {"sent": "comp_awaiting_image", "cliente": cliente_id}
+
+        if tapped_id == "comp:cancel":
+            _COMP_DEMO_STATE.pop((phone_number_id, to), None)
+            client.send_text(
+                phone_number_id=phone_number_id,
+                to=to,
+                body="Comprobantes cancelado. Volvé al menú con cualquier mensaje.",
+            )
+            return {"sent": "comp_cancelled"}
 
         # /devolucion flow — state is encoded in the row/button ids.
         if tapped_id == "btn_devolucion":

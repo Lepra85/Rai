@@ -328,10 +328,10 @@ def test_demo_dispatch_text_sends_buttons_and_list() -> None:
 
 
 def test_demo_dispatch_button_tap_echoes() -> None:
-    """Unhandled buttons (no dispatcher branch) still echo back the id."""
+    """Unhandled interactive ids (animal list rows have no branch) echo back."""
     c, fake = _client_with_fake_wa()
     try:
-        body = _v2_interactive_button_tap("btn_comprobantes")
+        body = _v2_list_row_tap("animal_perro")
         r = c.post(
             "/webhook/whatsapp",
             content=body,
@@ -345,7 +345,7 @@ def test_demo_dispatch_button_tap_echoes() -> None:
     assert len(fake.calls) == 1
     method, kw = fake.calls[0]
     assert method == "send_text"
-    assert "btn_comprobantes" in kw["body"]
+    assert "animal_perro" in kw["body"]
 
 
 def test_demo_dispatch_pedidos_button_sends_report() -> None:
@@ -372,11 +372,11 @@ def test_demo_dispatch_pedidos_button_sends_report() -> None:
     assert "2.471.210,01" in kw["body"]
 
 
-def test_demo_dispatch_other_buttons_still_echo() -> None:
-    """Buttons with no dispatcher branch (btn_comprobantes) keep echoing."""
+def test_demo_dispatch_other_taps_still_echo() -> None:
+    """Animal list rows have no dispatcher branch — still echo."""
     c, fake = _client_with_fake_wa()
     try:
-        body = _v2_interactive_button_tap("btn_comprobantes")
+        body = _v2_list_row_tap("animal_gato")
         r = c.post(
             "/webhook/whatsapp",
             content=body,
@@ -387,9 +387,8 @@ def test_demo_dispatch_other_buttons_still_echo() -> None:
         app.dependency_overrides.clear()
 
     assert r.status_code == 200
-    assert len(fake.calls) == 1
     kw = fake.calls[0][1]
-    assert "btn_comprobantes" in kw["body"]
+    assert "animal_gato" in kw["body"]
     # Specifically: did NOT send the pedidos report.
     assert "INTERNO 6" not in kw["body"]
 
@@ -594,6 +593,140 @@ def test_devolucion_cancel_sends_cancellation_text() -> None:
     assert r.status_code == 200
     assert fake.calls[0][0] == "send_text"
     assert "cancelada" in fake.calls[0][1]["body"].lower()
+
+
+def _v2_inbound_image(image_id: str = "img.1") -> bytes:
+    return json.dumps(
+        {
+            "message": {
+                "id": "wamid.img",
+                "type": "image",
+                "from": "541159200080",
+                "image": {"id": image_id, "mime_type": "image/jpeg"},
+                "kapso": {"direction": "inbound"},
+            },
+            "phone_number_id": "597907523413541",
+        }
+    ).encode()
+
+
+def test_comprobantes_button_opens_clientes_list() -> None:
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("btn_comprobantes")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_list"
+    kw = fake.calls[0][1]
+    assert "paso 1/2" in kw["header"]
+    row_ids = [r["id"] for r in kw["sections"][0]["rows"]]
+    assert "comp:cliente:3115" in row_ids  # DADAN JOSE
+    assert "comp:cliente:_search" in row_ids
+    assert len(row_ids) == 9  # 8 clientes + search
+
+
+def test_comprobantes_cliente_tap_stores_state_and_prompts_for_image() -> None:
+    from rai.api.webhook import _COMP_DEMO_STATE
+    _COMP_DEMO_STATE.clear()
+
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_list_row_tap("comp:cliente:3115")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_buttons"
+    kw = fake.calls[0][1]
+    assert "DADAN JOSE" in kw["body"]
+    assert "24.054,02" in kw["body"]
+    titles = [b["title"] for b in kw["buttons"]]
+    assert "Cancelar" in titles
+    assert "Cambiar cliente" in titles
+    # State persisted for the image upload.
+    assert _COMP_DEMO_STATE[("597907523413541", "541159200080")]["cliente_id"] == "3115"
+
+
+def test_comprobantes_image_with_state_sends_confirmation_and_clears_state() -> None:
+    from rai.api.webhook import _COMP_DEMO_STATE
+    _COMP_DEMO_STATE[("597907523413541", "541159200080")] = {"cliente_id": "3115"}
+
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_inbound_image("img.123")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_text"
+    text = fake.calls[0][1]["body"]
+    assert "Comprobante recibido" in text
+    assert "DADAN JOSE" in text
+    assert "24.054,02" in text
+    # State cleared after acking the image.
+    assert ("597907523413541", "541159200080") not in _COMP_DEMO_STATE
+
+
+def test_comprobantes_image_without_state_returns_helpful_message() -> None:
+    from rai.api.webhook import _COMP_DEMO_STATE
+    _COMP_DEMO_STATE.pop(("597907523413541", "541159200080"), None)
+
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_inbound_image("img.rogue")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert fake.calls[0][0] == "send_text"
+    text = fake.calls[0][1]["body"]
+    assert "no tengo un cliente activo" in text.lower() or "Comprobantes" in text
+
+
+def test_comprobantes_cancel_clears_state() -> None:
+    from rai.api.webhook import _COMP_DEMO_STATE
+    _COMP_DEMO_STATE[("597907523413541", "541159200080")] = {"cliente_id": "3115"}
+
+    c, fake = _client_with_fake_wa()
+    try:
+        body = _v2_interactive_button_tap("comp:cancel")
+        r = c.post(
+            "/webhook/whatsapp",
+            content=body,
+            headers={KAPSO_SIGNATURE_HEADER: _sign(body)},
+        )
+    finally:
+        from rai.main import app
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert ("597907523413541", "541159200080") not in _COMP_DEMO_STATE
 
 
 def test_demo_dispatch_skips_outbound_messages() -> None:

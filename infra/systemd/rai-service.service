@@ -9,7 +9,11 @@ User=rai
 Group=rai
 WorkingDirectory=/home/rai/repo/service
 EnvironmentFile=/home/rai/repo/service/.env
-ExecStart=/home/rai/repo/service/.venv/bin/uvicorn rai.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers
+ExecStart=/home/rai/repo/service/.venv/bin/uvicorn rai.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers
+# NOTE: workers=1 mientras estamos en demo phase — el flujo de comprobantes
+# usa state en memoria del proceso para puentear entre "tap cliente" y "send
+# imagen". Cuando movamos el state a la tabla Conversation (commit M+1)
+# podemos volver a --workers 2.
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/rai-service.log
